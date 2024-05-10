@@ -11,7 +11,9 @@ ENTITY costas_loop IS
 		PHASE_W 		: NATURAL := 10;
 		SINUSOID_W 		: NATURAL := 12;
 		SAMPLE_W 		: NATURAL := 12;
-		ACC_W 			: NATURAL := 32
+		ACC_W 			: NATURAL := 32;
+		ERR_W 			: NATURAL := 16;
+		GAIN_W  		: NATURAL := 16
 	);
 	PORT (
 		clk 			: IN  std_logic;
@@ -22,6 +24,8 @@ ENTITY costas_loop IS
 		freq_word 		: IN  std_logic_vector(NCO_W -1 DOWNTO 0);
 		cos_samples 	: OUT std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 		sin_samples 	: OUT std_logic_vector(SINUSOID_W -1 DOWNTO 0);
+
+		error_valid 	: IN  std_logic;
 
 		rx_samples 		: IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
 
@@ -51,6 +55,16 @@ ARCHITECTURE rtl OF costas_loop IS
 
 	SIGNAL rx_cos_slice : std_logic;
 	SIGNAL rx_error 	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_error_w 	: signed(ERR_W -1 DOWNTO 0);
+
+	SIGNAL lpf_alpha 	: std_logic_vector(GAIN_W -1 DOWNTO 0);
+	SIGNAL lpf_p_gain	: std_logic_vector(GAIN_W -1 DOWNTO 0);
+	SIGNAL lpf_i_gain	: std_logic_vector(GAIN_W -1 DOWNTO 0);
+	SIGNAL lpf_freeze	: std_logic;
+	SIGNAL lpf_zero		: std_logic;
+
+	SIGNAL lpf_adj_valid : std_logic;
+	SIGNAL lpf_adjust 	: std_logic_vector(NCO_W -1 DOWNTO 0);
 
 BEGIN
 
@@ -113,16 +127,47 @@ BEGIN
 	rx_cos_slice <= '1' WHEN rx_cos_T(SINUSOID_W -1) = '1' ELSE -- -1
 	                '0';                                        -- +1
 
-	rx_error <= rx_sin_T WHEN rx_cos_slice = '0' ELSE    -- multiply by +1/-1
+	rx_error <= rx_sin_T WHEN rx_cos_slice = '1' ELSE    -- multiply by +1/-1
 			    rx_sin_T_neg;
+
+	rx_error_w <= resize(rx_error, ERR_W);
 
 	data_out <= std_logic_vector(resize(shift_right(rx_cos_dump, 0), SAMPLE_W));
 
 	cos_samples	<= car_cos;
 	sin_samples <= car_sin;
 
+	lpf_p_gain 	<= std_logic_vector(to_signed(0, GAIN_W));
+	lpf_i_gain 	<= std_logic_vector(to_signed(3, GAIN_W));
+	lpf_freeze  <= '0';
+	lpf_zero    <= '1';
+	lpf_alpha   <= std_logic_vector(to_signed(6, GAIN_W));
+
+	u_loopfilter : ENTITY work.loop_filter(rtl)
+	GENERIC MAP (
+		NCO_W 			=> NCO_W,
+		ERR_W 			=> ERR_W,
+		GAIN_W  		=> GAIN_W
+	)
+	PORT MAP (
+		clk 			=> clk,
+		init 			=> init,
+
+		lpf_alpha 		=> lpf_alpha,
+		lpf_p_gain 		=> lpf_p_gain,
+		lpf_i_gain 		=> lpf_i_gain,
+		lpf_freeze 	 	=> lpf_freeze,
+		lpf_zero 		=> lpf_zero,
+
+		lpf_err_valid 	=> error_valid,
+		lpf_err 		=> std_logic_vector(rx_error_w),
+
+		lpf_adj_valid   => lpf_adj_valid,
+		lpf_adjust		=> lpf_adjust
+	);
+
 	U_carrier_nco : ENTITY work.nco(rtl)
-	GENERIC MAP(
+	GENERIC MAP (
 		NCO_W 			=> NCO_W
 	)
 	PORT MAP(
@@ -130,7 +175,10 @@ BEGIN
 		init 			=> init,
 	
 		freq_word 		=> freq_word,
-		freq_adjust 	=> std_logic_vector(to_signed(0, NCO_W)),
+
+		freq_adj_zero   => '0',
+		freq_adj_valid  => lpf_adj_valid,
+		freq_adjust 	=> lpf_adjust,
 	
 		phase    		=> car_phase,
 		rollover_pi2 	=> OPEN,
