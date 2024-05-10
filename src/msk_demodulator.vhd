@@ -15,8 +15,6 @@ ENTITY msk_demodulator IS
 		clk 				: IN  std_logic;
 		init 				: IN  std_logic;
 
-		tclk 				: IN  std_logic;
-
 		rx_freq_word_f1 	: IN  std_logic_vector(NCO_W -1 DOWNTO 0);
 		rx_freq_word_f2	 	: IN  std_logic_vector(NCO_W -1 DOWNTO 0);
 
@@ -29,6 +27,7 @@ END ENTITY msk_demodulator;
 
 ARCHITECTURE rtl OF msk_demodulator IS 
 
+	SIGNAL tclk 			: std_logic;
 	SIGNAL data_f1  		: std_logic_vector(SAMPLE_W -1 DOWNTO 0);
 	SIGNAL data_f2  		: std_logic_vector(SAMPLE_W -1 DOWNTO 0);
 	SIGNAL data_f1_d 		: signed(15 DOWNTO 0);
@@ -48,10 +47,15 @@ ARCHITECTURE rtl OF msk_demodulator IS
 	SIGNAL rx_sin_f2 		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 	SIGNAL rx_cos_f1_sin_f2 : signed(2*SINUSOID_W -1 DOWNTO 0);
 	SIGNAL rx_cos_f2_sin_f1 : signed(2*SINUSOID_W -1 DOWNTO 0);
+	SIGNAL rx_cos_f1_cos_f2 : signed(2*SINUSOID_W -1 DOWNTO 0);
+	SIGNAL rx_sin_f1_sin_f2 : signed(2*SINUSOID_W -1 DOWNTO 0);
 	SIGNAL dclk_slv			: signed(2*SINUSOID_W -1 DOWNTO 0);
 	SIGNAL cclk_slv			: signed(2*SINUSOID_W -1 DOWNTO 0);
 	SIGNAL dclk 			: std_logic;
+	SIGNAL dclk_d 			: std_logic;
 	SIGNAL cclk 			: std_logic;
+	SIGNAL error_valid_f1 	: std_logic;
+	SIGNAL error_valid_f2 	: std_logic;
 
 BEGIN
 
@@ -65,7 +69,7 @@ BEGIN
 
 				data_f1_d <= resize(signed(data_f1), 16);
 
-				IF cclk = '0' THEN
+				IF cclk = '1' THEN
 					data_f2_d <= resize(signed(NOT data_f2) + 1, 16);
 				ELSE
 					data_f2_d <= resize(signed(data_f2), 16);
@@ -105,6 +109,10 @@ BEGIN
 	rx_data 	<= data_bit;
 	rx_valid 	<= tclk_dly(3);
 
+	error_valid_f2 <= tclk_dly(3) AND data_bit;
+	error_valid_f1 <= tclk_dly(3) AND NOT data_bit;
+
+	tclk <= dclk XOR dclk_d;
 
 	clock_rec_process : PROCESS (clk)
 	BEGIN
@@ -112,12 +120,16 @@ BEGIN
 
 			rx_cos_f1_sin_f2 <= signed(rx_cos_f1) * signed(rx_sin_f2);
 			rx_cos_f2_sin_f1 <= signed(rx_cos_f2) * signed(rx_sin_f1);
+			rx_cos_f1_cos_f2 <= signed(rx_cos_f1) * signed(rx_cos_f2);
+			rx_sin_f1_sin_f2 <= signed(rx_sin_f2) * signed(rx_sin_f1);
 
 			dclk_slv <= rx_cos_f1_sin_f2 - rx_cos_f2_sin_f1;
-			cclk_slv <= rx_cos_f2_sin_f1 - rx_cos_f1_sin_f2;
+			cclk_slv <= rx_cos_f1_cos_f2 + rx_sin_f1_sin_f2;
 
 			dclk <= NOT dclk_slv(2*SINUSOID_W -1);
 			cclk <= NOT cclk_slv(2*SINUSOID_W -1);
+
+			dclk_d <= dclk;
 
 		END IF;
 	END PROCESS clock_rec_process;
@@ -138,6 +150,8 @@ BEGIN
 			freq_word 		=> rx_freq_word_f1,
 			cos_samples 	=> rx_cos_f1,
 			sin_samples 	=> rx_sin_f1,
+
+			error_valid 	=> error_valid_f1,
 
 			rx_samples 		=> rx_samples,
 
@@ -160,6 +174,8 @@ BEGIN
 			freq_word 		=> rx_freq_word_f2,
 			cos_samples 	=> rx_cos_f2,
 			sin_samples 	=> rx_sin_f2,
+
+			error_valid 	=> error_valid_f2,
 
 			rx_samples 		=> rx_samples,
 
