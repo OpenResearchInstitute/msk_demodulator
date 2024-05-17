@@ -13,7 +13,8 @@ ENTITY costas_loop IS
 		SAMPLE_W 		: NATURAL := 12;
 		ACC_W 			: NATURAL := 32;
 		ERR_W 			: NATURAL := 16;
-		GAIN_W  		: NATURAL := 16
+		GAIN_W  		: NATURAL := 16;
+		DATA_W 			: NATURAL := 16
 	);
 	PORT (
 		clk 			: IN  std_logic;
@@ -21,50 +22,56 @@ ENTITY costas_loop IS
 
 		tclk 			: IN  std_logic;
 
+		lpf_p_gain 		: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
+		lpf_i_gain 		: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
+		lpf_freeze 		: IN  std_logic;
+		lpf_zero   		: IN  std_logic;
+		lpf_alpha  		: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
+
 		freq_word 		: IN  std_logic_vector(NCO_W -1 DOWNTO 0);
 		cos_samples 	: OUT std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 		sin_samples 	: OUT std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 
-		error_valid 	: IN  std_logic;
+		error_valid		: IN  std_logic;
 
 		rx_samples 		: IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
 
-		data_out 		: OUT std_logic_vector(SAMPLE_W -1 DOWNTO 0)
+		data_out 		: OUT std_logic_vector(DATA_W -1 DOWNTO 0)
 	);
 END ENTITY costas_loop;
 
 ARCHITECTURE rtl OF costas_loop IS 
 
-	SIGNAL car_phase 	: std_logic_vector(NCO_W -1 DOWNTO 0);
-	SIGNAL car_sin 		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
-	SIGNAL car_cos 		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
-	SIGNAL car_sin_d	: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
-	SIGNAL car_cos_d	: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
+	SIGNAL car_phase 		: std_logic_vector(NCO_W -1 DOWNTO 0);
+	SIGNAL car_sin 			: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
+	SIGNAL car_cos 			: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
+	SIGNAL car_sin_d		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
+	SIGNAL car_cos_d		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 
-	SIGNAL rx_sin		: signed(2*SINUSOID_W -1 DOWNTO 0);
-	SIGNAL rx_cos		: signed(2*SINUSOID_W -1 DOWNTO 0);
-	SIGNAL rx_sin_acc	: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_cos_acc	: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_sin_dump	: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_cos_dump	: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_sin_T		: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_cos_T		: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_sin_T_neg : signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin			: signed(2*SINUSOID_W -1 DOWNTO 0);
+	SIGNAL rx_cos			: signed(2*SINUSOID_W -1 DOWNTO 0);
+	SIGNAL rx_sin_filt_sum 	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_filt_sum 	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_filt_acc 	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_filt_acc 	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_acc		: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_acc		: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_dump		: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_dump		: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_T			: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_T			: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_T_neg 	: signed(ACC_W -1 DOWNTO 0);
 
-	SIGNAL rx_samples_d : std_logic_vector(SAMPLE_W -1 DOWNTO 0);
+	SIGNAL rx_samples_d 	: std_logic_vector(SAMPLE_W -1 DOWNTO 0);
 
-	SIGNAL rx_cos_slice : std_logic;
-	SIGNAL rx_error 	: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_error_w 	: signed(ERR_W -1 DOWNTO 0);
+	SIGNAL rx_cos_slice 	: std_logic;
+	SIGNAL rx_error 		: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_error_w 		: signed(ERR_W -1 DOWNTO 0);
 
-	SIGNAL lpf_alpha 	: std_logic_vector(GAIN_W -1 DOWNTO 0);
-	SIGNAL lpf_p_gain	: std_logic_vector(GAIN_W -1 DOWNTO 0);
-	SIGNAL lpf_i_gain	: std_logic_vector(GAIN_W -1 DOWNTO 0);
-	SIGNAL lpf_freeze	: std_logic;
-	SIGNAL lpf_zero		: std_logic;
+	SIGNAL tclk_d			: std_logic;
 
-	SIGNAL lpf_adj_valid : std_logic;
-	SIGNAL lpf_adjust 	: std_logic_vector(NCO_W -1 DOWNTO 0);
+	SIGNAL lpf_adj_valid 	: std_logic;
+	SIGNAL lpf_adjust 		: std_logic_vector(NCO_W -1 DOWNTO 0);
 
 BEGIN
 
@@ -92,22 +99,42 @@ BEGIN
 
 	END PROCESS mix_proc;
 
+	rx_sin_filt_sum <= shift_right(signed(rx_sin) - rx_sin_filt_acc, to_integer(signed(lpf_alpha)));
+	rx_cos_filt_sum <= shift_right(signed(rx_cos) - rx_cos_filt_acc, to_integer(signed(lpf_alpha)));
+
+	filter_proc : PROCESS (clk)
+	BEGIN
+		IF clk'EVENT AND clk = '1' THEN
+
+			rx_sin_filt_acc <= rx_sin_filt_acc + rx_sin_filt_sum;
+			rx_cos_filt_acc <= rx_cos_filt_acc + rx_cos_filt_sum;
+
+			IF init = '1' THEN
+				rx_sin_filt_acc <= (OTHERS => '0');
+				rx_cos_filt_acc <= (OTHERS => '0');
+			END IF;
+
+		END IF;
+	END PROCESS filter_proc;
+
 	integrate_process : PROCESS (clk)
 	BEGIN 
 
 		IF clk'EVENT AND clk = '1' THEN 
 
+			tclk_d <= tclk;
+
 			IF tclk = '1' THEN 
-				rx_sin_acc 		<= resize(rx_sin, ACC_W);
-				rx_cos_acc 		<= resize(rx_cos, ACC_W);
+				rx_sin_acc 		<= to_signed(0, ACC_W); 
+				rx_cos_acc 		<= to_signed(0, ACC_W); 
 				rx_sin_dump 	<= resize(shift_right(signed(rx_sin_acc), SINUSOID_W), ACC_W);
 				rx_cos_dump 	<= resize(shift_right(signed(rx_cos_acc), SINUSOID_W), ACC_W);
 				rx_sin_T 		<= rx_sin_dump;
 				rx_sin_T_neg 	<= (NOT rx_sin_dump) + 1;
 				rx_cos_T 		<= rx_cos_dump;
 			ELSE
-				rx_sin_acc 		<= signed(rx_sin_acc) + signed(rx_sin);
-				rx_cos_acc 		<= signed(rx_cos_acc) + signed(rx_cos);
+				rx_sin_acc 		<= signed(rx_sin_acc) + signed(rx_sin_filt_acc);
+				rx_cos_acc 		<= signed(rx_cos_acc) + signed(rx_cos_filt_acc);
 			END IF;
 
 			IF init = '1' THEN
@@ -124,24 +151,18 @@ BEGIN
 
 	END PROCESS integrate_process;
 
-	rx_cos_slice <= '1' WHEN rx_cos_T(SINUSOID_W -1) = '1' ELSE -- -1
+	rx_cos_slice <= '1' WHEN rx_cos_T(ACC_W -1) = '0' ELSE -- -1
 	                '0';                                        -- +1
 
-	rx_error <= rx_sin_T WHEN rx_cos_slice = '1' ELSE    -- multiply by +1/-1
+	rx_error <= rx_sin_T WHEN rx_cos_slice = '0' ELSE    -- multiply by +1/-1
 			    rx_sin_T_neg;
 
 	rx_error_w <= resize(rx_error, ERR_W);
 
-	data_out <= std_logic_vector(resize(shift_right(rx_cos_dump, 0), SAMPLE_W));
+	data_out <= std_logic_vector(resize(shift_right(rx_cos_dump, 0), DATA_W));
 
 	cos_samples	<= car_cos;
 	sin_samples <= car_sin;
-
-	lpf_p_gain 	<= std_logic_vector(to_signed(0, GAIN_W));
-	lpf_i_gain 	<= std_logic_vector(to_signed(3, GAIN_W));
-	lpf_freeze  <= '0';
-	lpf_zero    <= '1';
-	lpf_alpha   <= std_logic_vector(to_signed(6, GAIN_W));
 
 	u_loopfilter : ENTITY work.loop_filter(rtl)
 	GENERIC MAP (
@@ -153,7 +174,6 @@ BEGIN
 		clk 			=> clk,
 		init 			=> init,
 
-		lpf_alpha 		=> lpf_alpha,
 		lpf_p_gain 		=> lpf_p_gain,
 		lpf_i_gain 		=> lpf_i_gain,
 		lpf_freeze 	 	=> lpf_freeze,
