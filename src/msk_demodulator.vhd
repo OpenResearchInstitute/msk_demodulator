@@ -9,7 +9,9 @@ ENTITY msk_demodulator IS
 		NCO_W 			: NATURAL := 32;
 		PHASE_W 		: NATURAL := 10;
 		SINUSOID_W 		: NATURAL := 12;
-		SAMPLE_W 		: NATURAL := 12
+		SAMPLE_W 		: NATURAL := 12;
+		DATA_W 			: NATURAL := 16;
+		GAIN_W 			: NATURAL := 16
 	);
 	PORT (
 		clk 				: IN  std_logic;
@@ -17,6 +19,12 @@ ENTITY msk_demodulator IS
 
 		rx_freq_word_f1 	: IN  std_logic_vector(NCO_W -1 DOWNTO 0);
 		rx_freq_word_f2	 	: IN  std_logic_vector(NCO_W -1 DOWNTO 0);
+
+		lpf_p_gain 			: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
+		lpf_i_gain 			: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
+		lpf_freeze 			: IN  std_logic;
+		lpf_zero   			: IN  std_logic;
+		lpf_alpha  			: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
 
 		rx_samples 			: IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
 
@@ -28,15 +36,15 @@ END ENTITY msk_demodulator;
 ARCHITECTURE rtl OF msk_demodulator IS 
 
 	SIGNAL tclk 			: std_logic;
-	SIGNAL data_f1  		: std_logic_vector(SAMPLE_W -1 DOWNTO 0);
-	SIGNAL data_f2  		: std_logic_vector(SAMPLE_W -1 DOWNTO 0);
-	SIGNAL data_f1_d 		: signed(15 DOWNTO 0);
-	SIGNAL data_f2_d 		: signed(15 DOWNTO 0);
-	SIGNAL data_f1_sum		: signed(15 DOWNTO 0);
-	SIGNAL data_f2_sum		: signed(15 DOWNTO 0);
-	SIGNAL data_f1_T		: signed(15 DOWNTO 0);
-	SIGNAL data_f2_T		: signed(15 DOWNTO 0);
-	SIGNAL data_sum 		: signed(15 DOWNTO 0);
+	SIGNAL data_f1  		: std_logic_vector(DATA_W -1 DOWNTO 0);
+	SIGNAL data_f2  		: std_logic_vector(DATA_W -1 DOWNTO 0);
+	SIGNAL data_f1_d 		: signed(DATA_W -1 DOWNTO 0);
+	SIGNAL data_f2_d 		: signed(DATA_W -1 DOWNTO 0);
+	SIGNAL data_f1_sum		: signed(DATA_W -1 DOWNTO 0);
+	SIGNAL data_f2_sum		: signed(DATA_W -1 DOWNTO 0);
+	SIGNAL data_f1_T		: signed(DATA_W -1 DOWNTO 0);
+	SIGNAL data_f2_T		: signed(DATA_W -1 DOWNTO 0);
+	SIGNAL data_sum 		: signed(DATA_W -1 DOWNTO 0);
 	SIGNAL data_bit 		: std_logic;
 	SIGNAL data_bit_dly 	: std_logic;
 	SIGNAL data_dec 		: std_logic;
@@ -56,6 +64,7 @@ ARCHITECTURE rtl OF msk_demodulator IS
 	SIGNAL cclk 			: std_logic;
 	SIGNAL error_valid_f1 	: std_logic;
 	SIGNAL error_valid_f2 	: std_logic;
+	SIGNAL f1_f2_sel 		: std_logic;
 
 BEGIN
 
@@ -67,50 +76,53 @@ BEGIN
 
 			IF tclk = '1' THEN
 
-				data_f1_d <= resize(signed(data_f1), 16);
+				data_f1_T <= signed(data_f1);
 
-				IF cclk = '1' THEN
-					data_f2_d <= resize(signed(NOT data_f2) + 1, 16);
+				IF cclk = '0' THEN
+					data_f2_T <= signed((NOT data_f2)) + 1;
 				ELSE
-					data_f2_d <= resize(signed(data_f2), 16);
+					data_f2_T <= signed(data_f2);
 				END IF;
-
-				data_f1_T <= data_f1_d;
-				data_f2_T <= data_f2_d;
 
 			END IF;
 
 			IF tclk_dly(0) = '1' THEN
 
-				data_f1_sum <= signed(data_f1_d) + data_f1_T;
-				data_f2_sum <= signed(data_f2_d) - data_f2_T;
+				data_f1_sum <= signed(data_f1) + data_f1_T;
+
+				IF cclk = '0' THEN
+					data_f2_sum <= signed((NOT data_f2)) + 1 + data_f2_T;
+				ELSE
+					data_f2_sum <= signed(data_f2) + data_f2_T;
+				END IF;
 
 			END IF;
 
-			IF tclk_dly(1) = '1' THEN
-
-				data_sum <= signed(data_f1_sum) - signed(data_f2_sum);
-
-			END IF;
-
-			IF data_sum(SAMPLE_W +1) = '0' THEN
-				data_bit <= '0';
-			ELSE
-				data_bit <= '1';
+			IF tclk_dly(0) = '1' THEN 
+				data_bit_dly <= data_bit;
 			END IF;
 
 			IF init = '1' THEN
-				data_sum <= (OTHERS => '0');
+				data_f1_T 		<= (OTHERS => '0');
+				data_f2_T 		<= (OTHERS => '0');
+				data_f1_sum		<= (OTHERS => '0');
+				data_f2_sum		<= (OTHERS => '0');
+				data_bit_dly 	<= '0';
 			END IF;
 
 		END IF;
 	END PROCESS data_proc;
 
-	rx_data 	<= data_bit;
-	rx_valid 	<= tclk_dly(3);
+	data_sum <= signed(data_f1_sum) - signed(data_f2_sum);
+	data_bit <= '0' WHEN data_sum(DATA_W -1) = '0' ELSE '1';
 
-	error_valid_f2 <= tclk_dly(3) AND data_bit;
-	error_valid_f1 <= tclk_dly(3) AND NOT data_bit;
+	f1_f2_sel 	<= NOT(data_bit XOR data_bit_dly);
+
+	rx_data 	<= data_bit;
+	rx_valid 	<= tclk_dly(1);
+
+	error_valid_f1 <= tclk_dly(1) AND f1_f2_sel;
+	error_valid_f2 <= tclk_dly(1) AND NOT f1_f2_sel;
 
 	tclk <= dclk XOR dclk_d;
 
@@ -139,7 +151,8 @@ BEGIN
 			NCO_W 			=> NCO_W,
 			PHASE_W 		=> PHASE_W,
 			SINUSOID_W 		=> SINUSOID_W,
-			SAMPLE_W 		=> SAMPLE_W 
+			SAMPLE_W 		=> SAMPLE_W,
+			DATA_W 			=> DATA_W
 		)
 		PORT MAP (
 			clk 			=> clk,
@@ -147,11 +160,17 @@ BEGIN
 
 			tclk 			=> tclk,
 
+			lpf_p_gain 		=> lpf_p_gain,
+			lpf_i_gain 		=> lpf_i_gain,
+			lpf_freeze 	 	=> lpf_freeze,
+			lpf_zero 		=> lpf_zero,
+			lpf_alpha 		=> lpf_alpha,
+
 			freq_word 		=> rx_freq_word_f1,
 			cos_samples 	=> rx_cos_f1,
 			sin_samples 	=> rx_sin_f1,
 
-			error_valid 	=> error_valid_f1,
+			error_valid		=> error_valid_f1,
 
 			rx_samples 		=> rx_samples,
 
@@ -163,13 +182,20 @@ BEGIN
 			NCO_W 			=> NCO_W,
 			PHASE_W 		=> PHASE_W,
 			SINUSOID_W 		=> SINUSOID_W,
-			SAMPLE_W 		=> SAMPLE_W 
+			SAMPLE_W 		=> SAMPLE_W,
+			DATA_W 			=> DATA_W 
 		)
 		PORT MAP (
 			clk 			=> clk,
 			init 			=> init,
 
 			tclk 			=> tclk,
+
+			lpf_p_gain 		=> lpf_p_gain,
+			lpf_i_gain 		=> lpf_i_gain,
+			lpf_freeze 	 	=> lpf_freeze,
+			lpf_zero 		=> lpf_zero,
+			lpf_alpha 		=> lpf_alpha,
 
 			freq_word 		=> rx_freq_word_f2,
 			cos_samples 	=> rx_cos_f2,
