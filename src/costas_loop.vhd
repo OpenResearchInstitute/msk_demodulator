@@ -14,7 +14,8 @@ ENTITY costas_loop IS
 		ACC_W 			: NATURAL := 32;
 		ERR_W 			: NATURAL := 16;
 		GAIN_W  		: NATURAL := 16;
-		DATA_W 			: NATURAL := 16
+		DATA_W 			: NATURAL := 16;
+		PHASE_INIT 		: UNSIGNED(NCO_W -1 DOWNTO 0) := (OTHERS => '0')
 	);
 	PORT (
 		clk 			: IN  std_logic;
@@ -188,7 +189,8 @@ BEGIN
 
 	U_carrier_nco : ENTITY work.nco(rtl)
 	GENERIC MAP (
-		NCO_W 			=> NCO_W
+		NCO_W 			=> NCO_W,
+		PHASE_INIT 		=> PHASE_INIT
 	)
 	PORT MAP(
 		clk 			=> clk,

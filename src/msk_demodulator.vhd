@@ -35,6 +35,13 @@ END ENTITY msk_demodulator;
 
 ARCHITECTURE rtl OF msk_demodulator IS 
 
+	CONSTANT full_scale  	: unsigned(NCO_W -1 DOWNTO 0) := (OTHERS => '1');
+
+	CONSTANT NCO_PId2 		: unsigned(NCO_W -1 DOWNTO 0) := full_scale/4;
+	CONSTANT NCO_PI  		: unsigned(NCO_W -1 DOWNTO 0) := full_scale/2;
+	CONSTANT NCO_3PId2		: unsigned(NCO_W -1 DOWNTO 0) := resize((full_scale*3)/2, NCO_W);
+	CONSTANT NCO_2PI 		: unsigned(NCO_W -1 DOWNTO 0) := (OTHERS => '0');
+
 	SIGNAL tclk 			: std_logic;
 	SIGNAL data_f1  		: std_logic_vector(DATA_W -1 DOWNTO 0);
 	SIGNAL data_f2  		: std_logic_vector(DATA_W -1 DOWNTO 0);
@@ -152,7 +159,8 @@ BEGIN
 			PHASE_W 		=> PHASE_W,
 			SINUSOID_W 		=> SINUSOID_W,
 			SAMPLE_W 		=> SAMPLE_W,
-			DATA_W 			=> DATA_W
+			DATA_W 			=> DATA_W,
+			PHASE_INIT 		=> NCO_2PI
 		)
 		PORT MAP (
 			clk 			=> clk,
@@ -183,7 +191,8 @@ BEGIN
 			PHASE_W 		=> PHASE_W,
 			SINUSOID_W 		=> SINUSOID_W,
 			SAMPLE_W 		=> SAMPLE_W,
-			DATA_W 			=> DATA_W 
+			DATA_W 			=> DATA_W,
+			PHASE_INIT 		=> NCO_2PI
 		)
 		PORT MAP (
 			clk 			=> clk,
