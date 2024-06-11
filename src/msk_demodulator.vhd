@@ -45,6 +45,8 @@ ARCHITECTURE rtl OF msk_demodulator IS
 	SIGNAL tclk 			: std_logic;
 	SIGNAL data_f1  		: std_logic_vector(DATA_W -1 DOWNTO 0);
 	SIGNAL data_f2  		: std_logic_vector(DATA_W -1 DOWNTO 0);
+	SIGNAL data_f1_signed	: signed(DATA_W -1 DOWNTO 0);
+	SIGNAL data_f2_signed	: signed(DATA_W -1 DOWNTO 0);
 	SIGNAL data_f1_d 		: signed(DATA_W -1 DOWNTO 0);
 	SIGNAL data_f2_d 		: signed(DATA_W -1 DOWNTO 0);
 	SIGNAL data_f1_sum		: signed(DATA_W -1 DOWNTO 0);
@@ -75,6 +77,9 @@ ARCHITECTURE rtl OF msk_demodulator IS
 
 BEGIN
 
+	data_f1_signed <= signed(data_f1);
+	data_f2_signed <= signed(NOT data_f2) + 1 WHEN cclk = '0' ELSE signed(data_f2);
+
 	data_proc : PROCESS (clk)
 	BEGIN
 		IF clk'EVENT AND clk = '1' THEN
@@ -83,25 +88,15 @@ BEGIN
 
 			IF tclk = '1' THEN
 
-				data_f1_T <= signed(data_f1);
-
-				IF cclk = '0' THEN
-					data_f2_T <= signed((NOT data_f2)) + 1;
-				ELSE
-					data_f2_T <= signed(data_f2);
-				END IF;
+				data_f1_T <= data_f1_signed;
+				data_f2_T <= data_f2_signed;
 
 			END IF;
 
 			IF tclk_dly(0) = '1' THEN
 
-				data_f1_sum <= signed(data_f1) + data_f1_T;
-
-				IF cclk = '0' THEN
-					data_f2_sum <= signed((NOT data_f2)) + 1 + data_f2_T;
-				ELSE
-					data_f2_sum <= signed(data_f2) + data_f2_T;
-				END IF;
+				data_f1_sum <= signed(data_f1_signed) + data_f1_T;
+				data_f2_sum <= signed(data_f2_signed) + data_f2_T;
 
 			END IF;
 
@@ -121,7 +116,7 @@ BEGIN
 	END PROCESS data_proc;
 
 	data_sum <= signed(data_f1_sum) - signed(data_f2_sum);
-	data_bit <= '0' WHEN data_sum(DATA_W -1) = '0' ELSE '1';
+	data_bit <= data_sum(DATA_W -1);
 
 	f1_f2_sel 	<= NOT(data_bit XOR data_bit_dly);
 
