@@ -26,10 +26,12 @@ ENTITY msk_demodulator IS
 		lpf_zero   			: IN  std_logic;
 		lpf_alpha  			: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
 
+		rx_enable 			: IN  std_logic;
+		rx_svalid 			: IN  std_logic;
 		rx_samples 			: IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
 
 		rx_data 			: OUT std_logic;
-		rx_valid 			: OUT std_logic
+		rx_dvalid 			: OUT std_logic
 	);
 END ENTITY msk_demodulator;
 
@@ -42,6 +44,7 @@ ARCHITECTURE rtl OF msk_demodulator IS
 	CONSTANT NCO_3PId2		: unsigned(NCO_W -1 DOWNTO 0) := resize((full_scale*3)/2, NCO_W);
 	CONSTANT NCO_2PI 		: unsigned(NCO_W -1 DOWNTO 0) := (OTHERS => '0');
 
+	SIGNAL rx_init 			: std_logic;
 	SIGNAL tclk 			: std_logic;
 	SIGNAL data_f1  		: std_logic_vector(DATA_W -1 DOWNTO 0);
 	SIGNAL data_f2  		: std_logic_vector(DATA_W -1 DOWNTO 0);
@@ -77,8 +80,10 @@ ARCHITECTURE rtl OF msk_demodulator IS
 
 BEGIN
 
-	data_f1_signed <= signed(data_f1);
-	data_f2_signed <= signed(NOT data_f2) + 1 WHEN cclk = '0' ELSE signed(data_f2);
+	rx_init 		<= init OR NOT rx_enable;
+
+	data_f1_signed 	<= signed(data_f1);
+	data_f2_signed 	<= signed(NOT data_f2) + 1 WHEN cclk = '0' ELSE signed(data_f2);
 
 	data_proc : PROCESS (clk)
 	BEGIN
@@ -104,7 +109,7 @@ BEGIN
 				data_bit_dly <= data_bit;
 			END IF;
 
-			IF init = '1' THEN
+			IF rx_init = '1' THEN
 				data_f1_T 		<= (OTHERS => '0');
 				data_f2_T 		<= (OTHERS => '0');
 				data_f1_sum		<= (OTHERS => '0');
@@ -121,7 +126,7 @@ BEGIN
 	f1_f2_sel 	<= NOT(data_bit XOR data_bit_dly);
 
 	rx_data 	<= data_bit;
-	rx_valid 	<= tclk_dly(1);
+	rx_dvalid 	<= tclk_dly(1);
 
 	error_valid_f1 <= tclk_dly(1) AND f1_f2_sel;
 	error_valid_f2 <= tclk_dly(1) AND NOT f1_f2_sel;
@@ -159,7 +164,7 @@ BEGIN
 		)
 		PORT MAP (
 			clk 			=> clk,
-			init 			=> init,
+			init 			=> rx_init,
 
 			tclk 			=> tclk,
 
@@ -191,7 +196,7 @@ BEGIN
 		)
 		PORT MAP (
 			clk 			=> clk,
-			init 			=> init,
+			init 			=> rx_init,
 
 			tclk 			=> tclk,
 
