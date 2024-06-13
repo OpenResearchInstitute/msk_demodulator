@@ -79,7 +79,9 @@ ENTITY costas_loop IS
 		ERR_W 			: NATURAL := 16;
 		GAIN_W  		: NATURAL := 16;
 		DATA_W 			: NATURAL := 16;
-		PHASE_INIT 		: UNSIGNED(NCO_W -1 DOWNTO 0) := (OTHERS => '0')
+		PHASE_INIT 		: UNSIGNED(NCO_W -1 DOWNTO 0) := (OTHERS => '0');
+		MAX_ACC_POS		: NATURAL := 2**(ACC_W -2);
+		MAX_ACC_NEG 	: INTEGER := -1 * MAX_ACC_POS
 	);
 	PORT (
 		clk 			: IN  std_logic;
@@ -127,8 +129,16 @@ ARCHITECTURE rtl OF costas_loop IS
 	SIGNAL rx_cos			: signed(2*SINUSOID_W -1 DOWNTO 0);
 	SIGNAL rx_sin_filt_sum 	: signed(ACC_W -1 DOWNTO 0);
 	SIGNAL rx_cos_filt_sum 	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_filt_sat 	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_filt_sat 	: signed(ACC_W -1 DOWNTO 0);
 	SIGNAL rx_sin_filt_acc 	: signed(ACC_W -1 DOWNTO 0);
 	SIGNAL rx_cos_filt_acc 	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_acc_sum   : signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_acc_sum   : signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_acc_sat   : signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_acc_sat   : signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_sum		: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_sum		: signed(ACC_W -1 DOWNTO 0);
 	SIGNAL rx_sin_acc		: signed(ACC_W -1 DOWNTO 0);
 	SIGNAL rx_cos_acc		: signed(ACC_W -1 DOWNTO 0);
 	SIGNAL rx_sin_dump		: signed(ACC_W -1 DOWNTO 0);
@@ -195,8 +205,17 @@ BEGIN
 ------------------------------------------------------------------------------------------------------
 -- Low Pass Filter
 
-	rx_sin_filt_sum <= shift_right(signed(rx_sin) - rx_sin_filt_acc, to_integer(signed(lpf_alpha)));
-	rx_cos_filt_sum <= shift_right(signed(rx_cos) - rx_cos_filt_acc, to_integer(signed(lpf_alpha)));
+	rx_sin_filt_sum <= rx_sin_filt_acc + shift_right(signed(rx_sin) - rx_sin_filt_acc, to_integer(signed(lpf_alpha)));
+	rx_cos_filt_sum <= rx_cos_filt_acc + shift_right(signed(rx_cos) - rx_cos_filt_acc, to_integer(signed(lpf_alpha)));
+
+	rx_sin_filt_sat <= to_signed(MAX_ACC_POS, ACC_W) WHEN rx_sin_filt_sum(ACC_W -1) = '0' AND rx_sin_filt_sum(ACC_W -2) = '1' ELSE
+					   to_signed(MAX_ACC_POS, ACC_W) WHEN rx_sin_filt_sum(ACC_W -1) = '1' AND rx_sin_filt_sum(ACC_W -2) = '0' ELSE
+					   rx_sin_filt_sum;
+
+	rx_cos_filt_sat <= to_signed(MAX_ACC_POS, ACC_W) WHEN rx_cos_filt_sum(ACC_W -1) = '0' AND rx_cos_filt_sum(ACC_W -2) = '1' ELSE
+					   to_signed(MAX_ACC_POS, ACC_W) WHEN rx_cos_filt_sum(ACC_W -1) = '1' AND rx_cos_filt_sum(ACC_W -2) = '0' ELSE
+					   rx_cos_filt_sum;
+
 
 	filter_proc : PROCESS (clk)
 	BEGIN
@@ -204,8 +223,8 @@ BEGIN
 
 			IF enable = '1' THEN
 
-				rx_sin_filt_acc <= rx_sin_filt_acc + rx_sin_filt_sum;
-				rx_cos_filt_acc <= rx_cos_filt_acc + rx_cos_filt_sum;
+				rx_sin_filt_acc <= rx_sin_filt_sat;
+				rx_cos_filt_acc <= rx_cos_filt_sat;
 
 			END IF;
 
@@ -226,6 +245,17 @@ BEGIN
 ------------------------------------------------------------------------------------------------------
 -- Integrate and Dump
 
+	rx_sin_acc_sum <= signed(rx_sin_acc) + signed(rx_sin_filt_acc);
+	rx_cos_acc_sum <= signed(rx_cos_acc) + signed(rx_cos_filt_acc);
+
+	rx_sin_acc_sat <= to_signed(MAX_ACC_POS, ACC_W) WHEN rx_sin_acc_sum(ACC_W -1) = '0' AND rx_sin_acc_sum(ACC_W -2) = '1' ELSE
+					  to_signed(MAX_ACC_POS, ACC_W) WHEN rx_sin_acc_sum(ACC_W -1) = '1' AND rx_sin_acc_sum(ACC_W -2) = '0' ELSE
+					  rx_sin_acc_sum;
+
+	rx_cos_acc_sat <= to_signed(MAX_ACC_POS, ACC_W) WHEN rx_cos_acc_sum(ACC_W -1) = '0' AND rx_cos_acc_sum(ACC_W -2) = '1' ELSE
+					  to_signed(MAX_ACC_POS, ACC_W) WHEN rx_cos_acc_sum(ACC_W -1) = '1' AND rx_cos_acc_sum(ACC_W -2) = '0' ELSE
+					  rx_cos_acc_sum;
+
 	integrate_process : PROCESS (clk)
 	BEGIN 
 
@@ -244,8 +274,8 @@ BEGIN
 					rx_sin_T_neg 	<= (NOT rx_sin_dump) + 1;
 					rx_cos_T 		<= rx_cos_dump;
 				ELSE
-					rx_sin_acc 		<= signed(rx_sin_acc) + signed(rx_sin_filt_acc);
-					rx_cos_acc 		<= signed(rx_cos_acc) + signed(rx_cos_filt_acc);
+					rx_sin_acc 		<= rx_sin_acc_sat;
+					rx_cos_acc 		<= rx_cos_acc_sat;
 				END IF;
 
 			END IF;
