@@ -334,7 +334,7 @@ BEGIN
 ------------------------------------------------------------------------------------------------------
 -- Loop Filter
 
-	u_loopfilter : ENTITY work.loop_filter(rtl)
+	u_loopfilter : ENTITY work.pi_controller(rtl)
 	GENERIC MAP (
 		NCO_W 			=> NCO_W,
 		ERR_W 			=> ERR_W,
