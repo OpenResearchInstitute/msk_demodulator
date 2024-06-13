@@ -85,6 +85,8 @@ ENTITY costas_loop IS
 		clk 			: IN  std_logic;
 		init 			: IN  std_logic;
 
+		enable 			: IN  std_logic;
+
 		tclk 			: IN  std_logic;
 
 		lpf_p_gain 		: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
@@ -161,12 +163,16 @@ BEGIN
 
 		IF clk'EVENT AND clk = '1' THEN
 
-			rx_samples_d	<= rx_samples;
-			car_sin_d 		<= car_sin;
-			car_cos_d 		<= car_cos;
+			IF enable = '1' THEN
 
-			rx_sin 			<= signed(car_sin_d) * signed(rx_samples_d);
-			rx_cos 			<= signed(car_cos_d) * signed(rx_samples_d);
+				rx_samples_d	<= rx_samples;
+				car_sin_d 		<= car_sin;
+				car_cos_d 		<= car_cos;
+
+				rx_sin 			<= signed(car_sin_d) * signed(rx_samples_d);
+				rx_cos 			<= signed(car_cos_d) * signed(rx_samples_d);
+
+			END IF;
 
 			IF init = '1' THEN
 				rx_samples_d	<= (OTHERS => '0');
@@ -196,8 +202,12 @@ BEGIN
 	BEGIN
 		IF clk'EVENT AND clk = '1' THEN
 
-			rx_sin_filt_acc <= rx_sin_filt_acc + rx_sin_filt_sum;
-			rx_cos_filt_acc <= rx_cos_filt_acc + rx_cos_filt_sum;
+			IF enable = '1' THEN
+
+				rx_sin_filt_acc <= rx_sin_filt_acc + rx_sin_filt_sum;
+				rx_cos_filt_acc <= rx_cos_filt_acc + rx_cos_filt_sum;
+
+			END IF;
 
 			IF init = '1' THEN
 				rx_sin_filt_acc <= (OTHERS => '0');
@@ -221,19 +231,23 @@ BEGIN
 
 		IF clk'EVENT AND clk = '1' THEN 
 
-			tclk_d <= tclk;
+			IF enable = '1' THEN
 
-			IF tclk = '1' THEN 
-				rx_sin_acc 		<= to_signed(0, ACC_W); 
-				rx_cos_acc 		<= to_signed(0, ACC_W); 
-				rx_sin_dump 	<= resize(shift_right(signed(rx_sin_acc), SINUSOID_W), ACC_W);
-				rx_cos_dump 	<= resize(shift_right(signed(rx_cos_acc), SINUSOID_W), ACC_W);
-				rx_sin_T 		<= rx_sin_dump;
-				rx_sin_T_neg 	<= (NOT rx_sin_dump) + 1;
-				rx_cos_T 		<= rx_cos_dump;
-			ELSE
-				rx_sin_acc 		<= signed(rx_sin_acc) + signed(rx_sin_filt_acc);
-				rx_cos_acc 		<= signed(rx_cos_acc) + signed(rx_cos_filt_acc);
+				tclk_d <= tclk;
+
+				IF tclk = '1' THEN 
+					rx_sin_acc 		<= to_signed(0, ACC_W); 
+					rx_cos_acc 		<= to_signed(0, ACC_W); 
+					rx_sin_dump 	<= resize(shift_right(signed(rx_sin_acc), SINUSOID_W), ACC_W);
+					rx_cos_dump 	<= resize(shift_right(signed(rx_cos_acc), SINUSOID_W), ACC_W);
+					rx_sin_T 		<= rx_sin_dump;
+					rx_sin_T_neg 	<= (NOT rx_sin_dump) + 1;
+					rx_cos_T 		<= rx_cos_dump;
+				ELSE
+					rx_sin_acc 		<= signed(rx_sin_acc) + signed(rx_sin_filt_acc);
+					rx_cos_acc 		<= signed(rx_cos_acc) + signed(rx_cos_filt_acc);
+				END IF;
+
 			END IF;
 
 			IF init = '1' THEN
@@ -300,6 +314,8 @@ BEGIN
 		clk 			=> clk,
 		init 			=> init,
 
+		enable 			=> enable,
+
 		lpf_p_gain 		=> lpf_p_gain,
 		lpf_i_gain 		=> lpf_i_gain,
 		lpf_freeze 	 	=> lpf_freeze,
@@ -329,6 +345,8 @@ BEGIN
 	PORT MAP(
 		clk 			=> clk,
 		init 			=> init,
+
+		enable 			=> enable,
 	
 		freq_word 		=> freq_word,
 
