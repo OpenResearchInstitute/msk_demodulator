@@ -79,9 +79,8 @@ ENTITY costas_loop IS
 		ERR_W 			: NATURAL := 16;
 		GAIN_W  		: NATURAL := 16;
 		DATA_W 			: NATURAL := 16;
-		PHASE_INIT 		: UNSIGNED(NCO_W -1 DOWNTO 0) := (OTHERS => '0');
-		MAX_ACC_POS		: NATURAL := 2**(ACC_W -2);
-		MAX_ACC_NEG 	: INTEGER := -1 * MAX_ACC_POS
+		PHASE_INIT 		: UNSIGNED(32 -1 DOWNTO 0) := (OTHERS => '0');
+		ASSERT_ENA 		: BOOLEAN := False
 	);
 	PORT (
 		clk 			: IN  std_logic;
@@ -118,6 +117,9 @@ END ENTITY costas_loop;
 -- Architecture
 
 ARCHITECTURE rtl OF costas_loop IS 
+
+	CONSTANT MAX_ACC_POS	: NATURAL := 2**(ACC_W -2);
+	CONSTANT MAX_ACC_NEG 	: INTEGER := -1 * MAX_ACC_POS;
 
 	SIGNAL car_phase 		: std_logic_vector(NCO_W -1 DOWNTO 0);
 	SIGNAL car_sin 			: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
@@ -205,17 +207,32 @@ BEGIN
 ------------------------------------------------------------------------------------------------------
 -- Low Pass Filter
 
-	rx_sin_filt_sum <= rx_sin_filt_acc + shift_right(signed(rx_sin) - rx_sin_filt_acc, to_integer(signed(lpf_alpha)));
-	rx_cos_filt_sum <= rx_cos_filt_acc + shift_right(signed(rx_cos) - rx_cos_filt_acc, to_integer(signed(lpf_alpha)));
+	rx_sin_filt_sum <= resize(rx_sin_filt_acc + shift_right(signed(rx_sin) - rx_sin_filt_acc, to_integer(signed(lpf_alpha))), ACC_W);
+	rx_cos_filt_sum <= resize(rx_cos_filt_acc + shift_right(signed(rx_cos) - rx_cos_filt_acc, to_integer(signed(lpf_alpha))), ACC_W);
 
 	rx_sin_filt_sat <= to_signed(MAX_ACC_POS, ACC_W) WHEN rx_sin_filt_sum(ACC_W -1) = '0' AND rx_sin_filt_sum(ACC_W -2) = '1' ELSE
-					   to_signed(MAX_ACC_POS, ACC_W) WHEN rx_sin_filt_sum(ACC_W -1) = '1' AND rx_sin_filt_sum(ACC_W -2) = '0' ELSE
+					   to_signed(MAX_ACC_NEG, ACC_W) WHEN rx_sin_filt_sum(ACC_W -1) = '1' AND rx_sin_filt_sum(ACC_W -2) = '0' ELSE
 					   rx_sin_filt_sum;
 
 	rx_cos_filt_sat <= to_signed(MAX_ACC_POS, ACC_W) WHEN rx_cos_filt_sum(ACC_W -1) = '0' AND rx_cos_filt_sum(ACC_W -2) = '1' ELSE
-					   to_signed(MAX_ACC_POS, ACC_W) WHEN rx_cos_filt_sum(ACC_W -1) = '1' AND rx_cos_filt_sum(ACC_W -2) = '0' ELSE
+					   to_signed(MAX_ACC_NEG, ACC_W) WHEN rx_cos_filt_sum(ACC_W -1) = '1' AND rx_cos_filt_sum(ACC_W -2) = '0' ELSE
 					   rx_cos_filt_sum;
 
+    filt_assert_gen : IF ASSERT_ENA GENERATE
+		filt_assert_proc : PROCESS (rx_sin_acc_sat, rx_cos_acc_sat)
+		BEGIN
+			ASSERT rx_sin_filt_sum = rx_sin_filt_sat 
+				REPORT "Costas Accumulator saturated - SIN - SUM: " & 
+					to_hex_string(rx_sin_filt_sum) &
+					"; SAT: " & to_hex_string(rx_sin_filt_sat)
+				SEVERITY Warning;
+			ASSERT rx_cos_filt_sum = rx_cos_filt_sat 
+				REPORT "Costas Accumulator saturated - COS - SUM: " & 
+					to_hex_string(rx_cos_filt_sum) &
+					"; SAT: " & to_hex_string(rx_cos_filt_sat)
+				SEVERITY Warning;
+		END PROCESS filt_assert_proc;
+	END GENERATE filt_assert_gen;
 
 	filter_proc : PROCESS (clk)
 	BEGIN
@@ -249,12 +266,30 @@ BEGIN
 	rx_cos_acc_sum <= signed(rx_cos_acc) + signed(rx_cos_filt_acc);
 
 	rx_sin_acc_sat <= to_signed(MAX_ACC_POS, ACC_W) WHEN rx_sin_acc_sum(ACC_W -1) = '0' AND rx_sin_acc_sum(ACC_W -2) = '1' ELSE
-					  to_signed(MAX_ACC_POS, ACC_W) WHEN rx_sin_acc_sum(ACC_W -1) = '1' AND rx_sin_acc_sum(ACC_W -2) = '0' ELSE
+					  to_signed(MAX_ACC_NEG, ACC_W) WHEN rx_sin_acc_sum(ACC_W -1) = '1' AND rx_sin_acc_sum(ACC_W -2) = '0' ELSE
 					  rx_sin_acc_sum;
 
 	rx_cos_acc_sat <= to_signed(MAX_ACC_POS, ACC_W) WHEN rx_cos_acc_sum(ACC_W -1) = '0' AND rx_cos_acc_sum(ACC_W -2) = '1' ELSE
-					  to_signed(MAX_ACC_POS, ACC_W) WHEN rx_cos_acc_sum(ACC_W -1) = '1' AND rx_cos_acc_sum(ACC_W -2) = '0' ELSE
+					  to_signed(MAX_ACC_NEG, ACC_W) WHEN rx_cos_acc_sum(ACC_W -1) = '1' AND rx_cos_acc_sum(ACC_W -2) = '0' ELSE
 					  rx_cos_acc_sum;
+
+
+    integ_assert_gen : IF ASSERT_ENA GENERATE
+		integ_assert_proc : PROCESS (rx_sin_acc_sat, rx_cos_acc_sat)
+		BEGIN
+			ASSERT rx_sin_acc_sum = rx_sin_acc_sat 
+				REPORT "Costas Accumulator saturated - SIN - SUM: " & 
+					to_hex_string(rx_sin_acc_sum) &
+					"; SAT: " & to_hex_string(rx_sin_acc_sat)
+				SEVERITY Warning;
+			ASSERT rx_cos_acc_sum = rx_cos_acc_sat 
+				REPORT "Costas Accumulator saturated - COS - SUM: " & 
+					to_hex_string(rx_cos_acc_sum) &
+					"; SAT: " & to_hex_string(rx_cos_acc_sat)
+				SEVERITY Warning;
+		END PROCESS integ_assert_proc;
+	END GENERATE integ_assert_gen;
+
 
 	integrate_process : PROCESS (clk)
 	BEGIN 
@@ -338,7 +373,8 @@ BEGIN
 	GENERIC MAP (
 		NCO_W 			=> NCO_W,
 		ERR_W 			=> ERR_W,
-		GAIN_W  		=> GAIN_W
+		GAIN_W  		=> GAIN_W,
+		ASSERT_ENA 		=> ASSERT_ENA
 	)
 	PORT MAP (
 		clk 			=> clk,
