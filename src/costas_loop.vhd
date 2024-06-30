@@ -235,7 +235,7 @@ BEGIN
 		END PROCESS filt_assert_proc;
 	END GENERATE filt_assert_gen;
 	-- synthesis translate_on
-	
+
 	filter_proc : PROCESS (clk)
 	BEGIN
 		IF clk'EVENT AND clk = '1' THEN
@@ -276,6 +276,7 @@ BEGIN
 					  rx_cos_acc_sum;
 
 
+	--synthesis translate_off
     integ_assert_gen : IF ASSERT_ENA GENERATE
 		integ_assert_proc : PROCESS (rx_sin_acc_sat, rx_cos_acc_sat)
 		BEGIN
@@ -291,6 +292,7 @@ BEGIN
 				SEVERITY Warning;
 		END PROCESS integ_assert_proc;
 	END GENERATE integ_assert_gen;
+	--synthesis translate_on
 
 
 	integrate_process : PROCESS (clk)
