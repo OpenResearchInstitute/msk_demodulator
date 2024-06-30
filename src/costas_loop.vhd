@@ -218,6 +218,7 @@ BEGIN
 					   to_signed(MAX_ACC_NEG, ACC_W) WHEN rx_cos_filt_sum(ACC_W -1) = '1' AND rx_cos_filt_sum(ACC_W -2) = '0' ELSE
 					   rx_cos_filt_sum;
 
+	--synthesis translate_off
     filt_assert_gen : IF ASSERT_ENA GENERATE
 		filt_assert_proc : PROCESS (rx_sin_acc_sat, rx_cos_acc_sat)
 		BEGIN
@@ -233,7 +234,8 @@ BEGIN
 				SEVERITY Warning;
 		END PROCESS filt_assert_proc;
 	END GENERATE filt_assert_gen;
-
+	-- synthesis translate_on
+	
 	filter_proc : PROCESS (clk)
 	BEGIN
 		IF clk'EVENT AND clk = '1' THEN
