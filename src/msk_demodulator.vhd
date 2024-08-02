@@ -72,6 +72,7 @@ USE ieee.numeric_std.ALL;
 ENTITY msk_demodulator IS 
 	GENERIC (
 		NCO_W 			: NATURAL := 32;
+		ACC_W 			: NATURAL := 32;
 		PHASE_W 		: NATURAL := 10;
 		SINUSOID_W 		: NATURAL := 12;
 		SAMPLE_W 		: NATURAL := 12;
@@ -90,6 +91,9 @@ ENTITY msk_demodulator IS
 		lpf_freeze 			: IN  std_logic;
 		lpf_zero   			: IN  std_logic;
 		lpf_alpha  			: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
+
+		lpf_accum_f1		: OUT std_logic_vector(ACC_W -1 DOWNTO 0);
+		lpf_accum_f2		: OUT std_logic_vector(ACC_W -1 DOWNTO 0);
 
 		rx_enable 			: IN  std_logic;
 		rx_svalid 			: IN  std_logic;
@@ -263,6 +267,7 @@ BEGIN
 	U_f1 : ENTITY work.costas_loop(rtl)
 		GENERIC MAP (
 			NCO_W 			=> NCO_W,
+			ACC_W 		 	=> ACC_W,
 			PHASE_W 		=> PHASE_W,
 			SINUSOID_W 		=> SINUSOID_W,
 			SAMPLE_W 		=> SAMPLE_W,
@@ -282,6 +287,8 @@ BEGIN
 			lpf_freeze 	 	=> lpf_freeze,
 			lpf_zero 		=> lpf_zero,
 			lpf_alpha 		=> lpf_alpha,
+
+			lpf_accum 		=> lpf_accum_f1,
 
 			freq_word 		=> rx_freq_word_f1,
 			cos_samples 	=> rx_cos_f1,
@@ -306,6 +313,7 @@ BEGIN
 	U_f2 : ENTITY work.costas_loop(rtl)
 		GENERIC MAP (
 			NCO_W 			=> NCO_W,
+			ACC_W 		 	=> ACC_W,
 			PHASE_W 		=> PHASE_W,
 			SINUSOID_W 		=> SINUSOID_W,
 			SAMPLE_W 		=> SAMPLE_W,
@@ -325,6 +333,8 @@ BEGIN
 			lpf_freeze 	 	=> lpf_freeze,
 			lpf_zero 		=> lpf_zero,
 			lpf_alpha 		=> lpf_alpha,
+
+			lpf_accum 		=> lpf_accum_f2,
 
 			freq_word 		=> rx_freq_word_f2,
 			cos_samples 	=> rx_cos_f2,

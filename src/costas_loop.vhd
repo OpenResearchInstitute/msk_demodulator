@@ -96,6 +96,8 @@ ENTITY costas_loop IS
 		lpf_zero   		: IN  std_logic;
 		lpf_alpha  		: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
 
+		lpf_accum 		: OUT std_logic_vector(ACC_W -1 DOWNTO 0);
+
 		freq_word 		: IN  std_logic_vector(NCO_W -1 DOWNTO 0);
 		cos_samples 	: OUT std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 		sin_samples 	: OUT std_logic_vector(SINUSOID_W -1 DOWNTO 0);
@@ -395,7 +397,9 @@ BEGIN
 		lpf_err 		=> std_logic_vector(rx_error_w),
 
 		lpf_adj_valid   => lpf_adj_valid,
-		lpf_adjust		=> lpf_adjust
+		lpf_adjust		=> lpf_adjust,
+
+		lpf_accum 		=> lpf_accum
 	);
 
 
