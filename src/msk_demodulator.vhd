@@ -138,6 +138,7 @@ ARCHITECTURE rtl OF msk_demodulator IS
 	SIGNAL data_bit_dly 	: std_logic;
 	SIGNAL data_dec 		: std_logic;
 	SIGNAL tclk_dly 		: std_logic_vector(0 TO 3);
+	SIGNAL tclk_dly_1_d 	: std_logic;
 	SIGNAL rx_cos_f1 		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 	SIGNAL rx_cos_f2 		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 	SIGNAL rx_sin_f1 		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
@@ -186,10 +187,10 @@ BEGIN
 				END IF;
 
 				IF tclk_dly(0) = '1' THEN
-	
+		
 					data_f1_sum <= signed(data_f1_signed) + data_f1_T;
 					data_f2_sum <= signed(data_f2_signed) + data_f2_T;
-	
+		
 				END IF;
 
 				IF tclk_dly(0) = '1' THEN 
@@ -197,6 +198,8 @@ BEGIN
 				END IF;
 
 			END IF;
+
+			tclk_dly_1_d <= tclk_dly(1);
 
 			IF rx_init = '1' THEN
 				data_f1_T 		<= (OTHERS => '0');
@@ -215,7 +218,7 @@ BEGIN
 	f1_f2_sel 	<= NOT(data_bit XOR data_bit_dly);
 
 	rx_data 	<= data_bit;
-	rx_dvalid 	<= tclk_dly(1);
+	rx_dvalid 	<= tclk_dly(1) AND NOT tclk_dly_1_d;
 
 	error_valid_f1 <= tclk_dly(1) AND f1_f2_sel;
 	error_valid_f2 <= tclk_dly(1) AND NOT f1_f2_sel;
@@ -252,6 +255,19 @@ BEGIN
 
 			END IF;
 
+			IF init = '1' THEN
+
+				rx_cos_f1_sin_f2 	<= (OTHERS => '0');
+				rx_cos_f2_sin_f1 	<= (OTHERS => '0');
+				rx_cos_f1_cos_f2 	<= (OTHERS => '0');
+				rx_sin_f1_sin_f2 	<= (OTHERS => '0');
+				dclk_slv			<= (OTHERS => '0');
+				cclk_slv			<= (OTHERS => '0');
+				dclk				<= '0';
+				cclk				<= '0';
+				dclk_d				<= '0';
+
+			END IF;
 		END IF;
 	END PROCESS clock_rec_process;
 
@@ -296,6 +312,7 @@ BEGIN
 
 			error_valid		=> error_valid_f1,
 
+			rx_svalid 		=> rx_svalid,
 			rx_samples 		=> rx_samples,
 
 			data_out 		=> data_f1
@@ -342,6 +359,7 @@ BEGIN
 
 			error_valid 	=> error_valid_f2,
 
+			rx_svalid 		=> rx_svalid,
 			rx_samples 		=> rx_samples,
 
 			data_out 		=> data_f2

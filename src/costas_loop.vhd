@@ -104,6 +104,7 @@ ENTITY costas_loop IS
 
 		error_valid		: IN  std_logic;
 
+		rx_svalid 		: IN  std_logic;
 		rx_samples 		: IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
 
 		data_out 		: OUT std_logic_vector(DATA_W -1 DOWNTO 0)
@@ -177,7 +178,7 @@ BEGIN
 
 		IF clk'EVENT AND clk = '1' THEN
 
-			IF enable = '1' THEN
+			IF enable = '1' AND rx_svalid = '1' THEN
 
 				rx_samples_d	<= rx_samples;
 				car_sin_d 		<= car_sin;
@@ -242,7 +243,7 @@ BEGIN
 	BEGIN
 		IF clk'EVENT AND clk = '1' THEN
 
-			IF enable = '1' THEN
+			IF enable = '1' AND rx_svalid = '1' THEN
 
 				rx_sin_filt_acc <= rx_sin_filt_sat;
 				rx_cos_filt_acc <= rx_cos_filt_sat;
@@ -302,7 +303,7 @@ BEGIN
 
 		IF clk'EVENT AND clk = '1' THEN 
 
-			IF enable = '1' THEN
+			IF enable = '1' AND rx_svalid = '1' THEN
 
 				tclk_d <= tclk;
 
@@ -420,7 +421,7 @@ BEGIN
 		clk 			=> clk,
 		init 			=> init,
 
-		enable 			=> enable,
+		enable 			=> enable AND rx_svalid,
 	
 		freq_word 		=> freq_word,
 
