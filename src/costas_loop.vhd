@@ -362,7 +362,7 @@ BEGIN
 ------------------------------------------------------------------------------------------------------
 -- Data Output
 
-	data_out <= std_logic_vector(resize(shift_right(rx_cos_dump, 0), DATA_W));
+	data_out <= std_logic_vector(resize(shift_right(rx_cos_dump, 5), DATA_W));
 
 	cos_samples	<= car_cos;
 	sin_samples <= car_sin;
