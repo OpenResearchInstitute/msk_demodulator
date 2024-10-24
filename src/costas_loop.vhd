@@ -210,8 +210,8 @@ BEGIN
 ------------------------------------------------------------------------------------------------------
 -- Low Pass Filter
 
-	rx_sin_filt_sum <= resize(rx_sin_filt_acc + shift_right(signed(rx_sin) - rx_sin_filt_acc, to_integer(signed(lpf_alpha))), ACC_W);
-	rx_cos_filt_sum <= resize(rx_cos_filt_acc + shift_right(signed(rx_cos) - rx_cos_filt_acc, to_integer(signed(lpf_alpha))), ACC_W);
+	rx_sin_filt_sum <= resize(rx_sin_filt_acc + shift_right(signed(rx_sin - rx_sin_filt_acc), to_integer(signed(lpf_alpha))), ACC_W);
+	rx_cos_filt_sum <= resize(rx_cos_filt_acc + shift_right(signed(rx_cos - rx_cos_filt_acc), to_integer(signed(lpf_alpha))), ACC_W);
 
 	rx_sin_filt_sat <= to_signed(MAX_ACC_POS, ACC_W) WHEN rx_sin_filt_sum(ACC_W -1) = '0' AND rx_sin_filt_sum(ACC_W -2) = '1' ELSE
 					   to_signed(MAX_ACC_NEG, ACC_W) WHEN rx_sin_filt_sum(ACC_W -1) = '1' AND rx_sin_filt_sum(ACC_W -2) = '0' ELSE
