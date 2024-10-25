@@ -294,7 +294,7 @@ BEGIN
 			clk 			=> clk,
 			init 			=> rx_init,
 
-			enable 			=> rx_svalid,
+			enable 			=> rx_enable,
 
 			tclk 			=> tclk,
 
@@ -341,7 +341,7 @@ BEGIN
 			clk 			=> clk,
 			init 			=> rx_init,
 
-			enable 			=> rx_svalid,
+			enable 			=> rx_enable,
 
 			tclk 			=> tclk,
 
