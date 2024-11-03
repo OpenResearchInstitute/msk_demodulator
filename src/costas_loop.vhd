@@ -98,6 +98,7 @@ ENTITY costas_loop IS
 
 		lpf_accum 		: OUT std_logic_vector(ACC_W -1 DOWNTO 0);
 
+		discard_rxnco 	: IN  std_logic_vector(7 DOWNTO 0);
 		freq_word 		: IN  std_logic_vector(NCO_W -1 DOWNTO 0);
 		cos_samples 	: OUT std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 		sin_samples 	: OUT std_logic_vector(SINUSOID_W -1 DOWNTO 0);
@@ -424,6 +425,7 @@ BEGIN
 
 		enable 			=> enable AND rx_svalid,
 	
+		discard_nco 	=> discard_rxnco,
 		freq_word 		=> freq_word,
 
 		freq_adj_zero   => '0',

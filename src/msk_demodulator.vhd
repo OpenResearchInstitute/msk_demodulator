@@ -85,6 +85,7 @@ ENTITY msk_demodulator IS
 
 		rx_freq_word_f1 	: IN  std_logic_vector(NCO_W -1 DOWNTO 0);
 		rx_freq_word_f2	 	: IN  std_logic_vector(NCO_W -1 DOWNTO 0);
+		discard_rxnco 		: IN  std_logic_vector(7 DOWNTO 0);
 
 		lpf_p_gain 			: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
 		lpf_i_gain 			: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
@@ -175,9 +176,9 @@ BEGIN
 	BEGIN
 		IF clk'EVENT AND clk = '1' THEN
 
-			IF rx_svalid = '1' THEN
+			tclk_dly <= tclk & tclk_dly(0 TO 2);
 
-				tclk_dly <= tclk & tclk_dly(0 TO 2);
+			IF rx_svalid = '1' THEN
 
 				IF tclk = '1' THEN
 	
@@ -306,6 +307,7 @@ BEGIN
 
 			lpf_accum 		=> lpf_accum_f1,
 
+			discard_rxnco 	=> discard_rxnco,
 			freq_word 		=> rx_freq_word_f1,
 			cos_samples 	=> rx_cos_f1,
 			sin_samples 	=> rx_sin_f1,
@@ -353,6 +355,7 @@ BEGIN
 
 			lpf_accum 		=> lpf_accum_f2,
 
+			discard_rxnco 	=> discard_rxnco,
 			freq_word 		=> rx_freq_word_f2,
 			cos_samples 	=> rx_cos_f2,
 			sin_samples 	=> rx_sin_f2,
