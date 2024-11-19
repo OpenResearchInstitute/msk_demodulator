@@ -179,7 +179,7 @@ BEGIN
 
 		IF clk'EVENT AND clk = '1' THEN
 
-			IF enable = '1' AND rx_svalid = '1' THEN
+			IF enable = '1' THEN
 
 				rx_samples_d	<= rx_samples;
 				car_sin_d 		<= car_sin;
@@ -245,7 +245,7 @@ BEGIN
 	BEGIN
 		IF clk'EVENT AND clk = '1' THEN
 
-			IF enable = '1' AND rx_svalid = '1' THEN
+			IF enable = '1' THEN
 
 				rx_sin_filt_acc <= rx_sin_filt_sat;
 				rx_cos_filt_acc <= rx_cos_filt_sat;
@@ -305,7 +305,7 @@ BEGIN
 
 		IF clk'EVENT AND clk = '1' THEN 
 
-			IF enable = '1' AND rx_svalid = '1' THEN
+			IF enable = '1' THEN
 
 				tclk_d <= tclk;
 
@@ -318,8 +318,10 @@ BEGIN
 					rx_sin_T_neg 	<= (NOT rx_sin_dump) + 1;
 					rx_cos_T 		<= rx_cos_dump;
 				ELSE
-					rx_sin_acc 		<= rx_sin_acc_sat;
-					rx_cos_acc 		<= rx_cos_acc_sat;
+					IF rx_svalid = '1' THEN
+						rx_sin_acc	<= rx_sin_acc_sat;
+						rx_cos_acc	<= rx_cos_acc_sat;
+					END IF;
 				END IF;
 
 			END IF;
@@ -423,7 +425,7 @@ BEGIN
 		clk 			=> clk,
 		init 			=> init,
 
-		enable 			=> enable AND rx_svalid,
+		enable 			=> enable,
 	
 		discard_nco 	=> discard_rxnco,
 		freq_word 		=> freq_word,
