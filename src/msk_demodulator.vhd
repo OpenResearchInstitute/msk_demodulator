@@ -178,26 +178,22 @@ BEGIN
 
 			tclk_dly <= tclk & tclk_dly(0 TO 2);
 
-			IF rx_svalid = '1' THEN
-
-				IF tclk = '1' THEN
+			IF tclk = '1' THEN
 	
-					data_f1_T <= data_f1_signed;
-					data_f2_T <= data_f2_signed;
+				data_f1_T <= data_f1_signed;
+				data_f2_T <= data_f2_signed;
 	
-				END IF;
+			END IF;
 
-				IF tclk_dly(0) = '1' THEN
+			IF tclk_dly(0) = '1' THEN
 		
-					data_f1_sum <= signed(data_f1_signed) + data_f1_T;
-					data_f2_sum <= signed(data_f2_signed) + data_f2_T;
+				data_f1_sum <= signed(data_f1_signed) + data_f1_T;
+				data_f2_sum <= signed(data_f2_signed) + data_f2_T;
 		
-				END IF;
+			END IF;
 
-				IF tclk_dly(0) = '1' THEN 
-					data_bit_dly <= data_bit;
-				END IF;
-
+			IF tclk_dly(0) = '1' THEN 
+				data_bit_dly <= data_bit;
 			END IF;
 
 			tclk_dly_1_d <= tclk_dly(1);
@@ -239,22 +235,18 @@ BEGIN
 	BEGIN
 		IF clk'EVENT AND clk = '1' THEN
 
-			IF rx_svalid = '1' THEN
+			rx_cos_f1_sin_f2 <= signed(rx_cos_f1) * signed(rx_sin_f2);
+			rx_cos_f2_sin_f1 <= signed(rx_cos_f2) * signed(rx_sin_f1);
+			rx_cos_f1_cos_f2 <= signed(rx_cos_f1) * signed(rx_cos_f2);
+			rx_sin_f1_sin_f2 <= signed(rx_sin_f2) * signed(rx_sin_f1);
 
-				rx_cos_f1_sin_f2 <= signed(rx_cos_f1) * signed(rx_sin_f2);
-				rx_cos_f2_sin_f1 <= signed(rx_cos_f2) * signed(rx_sin_f1);
-				rx_cos_f1_cos_f2 <= signed(rx_cos_f1) * signed(rx_cos_f2);
-				rx_sin_f1_sin_f2 <= signed(rx_sin_f2) * signed(rx_sin_f1);
+			dclk_slv <= rx_cos_f1_sin_f2 - rx_cos_f2_sin_f1;
+			cclk_slv <= rx_cos_f1_cos_f2 + rx_sin_f1_sin_f2;
 
-				dclk_slv <= rx_cos_f1_sin_f2 - rx_cos_f2_sin_f1;
-				cclk_slv <= rx_cos_f1_cos_f2 + rx_sin_f1_sin_f2;
+			dclk <= NOT dclk_slv(2*SINUSOID_W -1);
+			cclk <= NOT cclk_slv(2*SINUSOID_W -1);
 
-				dclk <= NOT dclk_slv(2*SINUSOID_W -1);
-				cclk <= NOT cclk_slv(2*SINUSOID_W -1);
-
-				dclk_d <= dclk;
-
-			END IF;
+			dclk_d <= dclk;
 
 			IF init = '1' THEN
 
