@@ -77,7 +77,8 @@ ENTITY costas_loop IS
 		SAMPLE_W 		: NATURAL := 12;
 		ACC_W 			: NATURAL := 32;
 		ERR_W 			: NATURAL := 16;
-		GAIN_W  		: NATURAL := 16;
+		GAIN_W  		: NATURAL := 24;
+		SHIFT_W 		: NATURAL := 8;
 		DATA_W 			: NATURAL := 16;
 		PHASE_INIT 		: UNSIGNED(32 -1 DOWNTO 0) := (OTHERS => '0');
 		ASSERT_ENA 		: BOOLEAN := False
@@ -92,6 +93,8 @@ ENTITY costas_loop IS
 
 		lpf_p_gain 		: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
 		lpf_i_gain 		: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
+		lpf_p_shift		: IN  std_logic_vector(SHIFT_W -1 DOWNTO 0);
+		lpf_i_shift		: IN  std_logic_vector(SHIFT_W -1 DOWNTO 0);
 		lpf_freeze 		: IN  std_logic;
 		lpf_zero   		: IN  std_logic;
 		lpf_alpha  		: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
@@ -395,6 +398,8 @@ BEGIN
 
 		lpf_p_gain 		=> lpf_p_gain,
 		lpf_i_gain 		=> lpf_i_gain,
+		lpf_i_shift		=> lpf_i_shift,
+		lpf_p_shift		=> lpf_p_shift,
 		lpf_freeze 	 	=> lpf_freeze,
 		lpf_zero 		=> lpf_zero,
 
