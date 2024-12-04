@@ -100,6 +100,8 @@ ENTITY costas_loop IS
 		lpf_alpha  		: IN  std_logic_vector(GAIN_W -1 DOWNTO 0);
 
 		lpf_accum 		: OUT std_logic_vector(ACC_W -1 DOWNTO 0);
+		nco_adjust		: OUT std_logic_vector(31 DOWNTO 0);
+		loop_error		: OUT std_logic_vector(31 DOWNTO 0);
 
 		discard_rxnco 	: IN  std_logic_vector(7 DOWNTO 0);
 		freq_word 		: IN  std_logic_vector(NCO_W -1 DOWNTO 0);
@@ -412,6 +414,18 @@ BEGIN
 		lpf_accum 		=> lpf_accum
 	);
 
+	obs_proc : PROCESS (clk)
+	BEGIN
+		IF clk'EVENT AND clk = '1' THEN 
+			IF init = '1' THEN
+				loop_error <= (OTHERS => '0');
+				nco_adjust <= (OTHERS => '0');
+			ELSE
+				loop_error <= std_logic_vector(resize(rx_error_w,32));
+				nco_adjust <= lpf_adjust;
+			END IF;
+		END IF;
+	END PROCESS obs_proc;
 
 ------------------------------------------------------------------------------------------------------
 --       __  __  

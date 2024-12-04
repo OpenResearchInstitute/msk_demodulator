@@ -98,6 +98,10 @@ ENTITY msk_demodulator IS
 
 		lpf_accum_f1		: OUT std_logic_vector(ACC_W -1 DOWNTO 0);
 		lpf_accum_f2		: OUT std_logic_vector(ACC_W -1 DOWNTO 0);
+		f1_nco_adjust		: OUT std_logic_vector(31 DOWNTO 0);
+		f2_nco_adjust		: OUT std_logic_vector(31 DOWNTO 0);
+		f1_error			: OUT std_logic_vector(31 DOWNTO 0);
+		f2_error			: OUT std_logic_vector(31 DOWNTO 0);
 
 		rx_enable 			: IN  std_logic;
 		rx_svalid 			: IN  std_logic;
@@ -303,6 +307,8 @@ BEGIN
 			lpf_alpha 		=> lpf_alpha,
 
 			lpf_accum 		=> lpf_accum_f1,
+			nco_adjust 		=> f1_nco_adjust,
+			loop_error		=> f1_error,
 
 			discard_rxnco 	=> discard_rxnco,
 			freq_word 		=> rx_freq_word_f1,
@@ -353,6 +359,8 @@ BEGIN
 			lpf_alpha 		=> lpf_alpha,
 
 			lpf_accum 		=> lpf_accum_f2,
+			nco_adjust 		=> f2_nco_adjust,
+			loop_error		=> f2_error,
 
 			discard_rxnco 	=> discard_rxnco,
 			freq_word 		=> rx_freq_word_f2,
