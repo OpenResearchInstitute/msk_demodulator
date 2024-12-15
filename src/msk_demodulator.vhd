@@ -143,10 +143,11 @@ ARCHITECTURE rtl OF msk_demodulator IS
 	SIGNAL data_f2_T		: signed(DATA_W -1 DOWNTO 0);
 	SIGNAL data_sum 		: signed(DATA_W -1 DOWNTO 0);
 	SIGNAL data_bit 		: std_logic;
-	SIGNAL data_bit_dly 	: std_logic;
+	SIGNAL data_bit_enc 	: std_logic;
+	SIGNAL data_bit_enc_t	: std_logic;
+	SIGNAL data_bit_dec		: std_logic;
 	SIGNAL data_dec 		: std_logic;
 	SIGNAL tclk_dly 		: std_logic_vector(0 TO 3);
-	SIGNAL tclk_dly_1_d 	: std_logic;
 	SIGNAL rx_cos_f1 		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 	SIGNAL rx_cos_f2 		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 	SIGNAL rx_sin_f1 		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
@@ -162,7 +163,6 @@ ARCHITECTURE rtl OF msk_demodulator IS
 	SIGNAL cclk 			: std_logic;
 	SIGNAL error_valid_f1 	: std_logic;
 	SIGNAL error_valid_f2 	: std_logic;
-	SIGNAL f1_f2_sel 		: std_logic;
 
 BEGIN
 
@@ -200,32 +200,29 @@ BEGIN
 			END IF;
 
 			IF tclk_dly(0) = '1' THEN 
-				data_bit_dly <= data_bit;
+				data_bit_enc_t <= data_bit_enc;
 			END IF;
-
-			tclk_dly_1_d <= tclk_dly(1);
 
 			IF rx_init = '1' THEN
 				data_f1_T 		<= (OTHERS => '0');
 				data_f2_T 		<= (OTHERS => '0');
 				data_f1_sum		<= (OTHERS => '0');
 				data_f2_sum		<= (OTHERS => '0');
-				data_bit_dly 	<= '0';
+				data_bit_enc_t 	<= '0';
 			END IF;
 
 		END IF;
 	END PROCESS data_proc;
 
-	data_sum <= signed(data_f1_sum) - signed(data_f2_sum);
-	data_bit <= data_sum(DATA_W -1);
+	data_sum 		<= signed(data_f1_sum) - signed(data_f2_sum);
+	data_bit_enc 	<= data_sum(DATA_W -1);
+	data_bit_dec	<= data_bit_enc WHEN data_bit_enc_t = '0' ELSE NOT data_bit_enc;
 
-	f1_f2_sel 	<= NOT(data_bit XOR data_bit_dly);
+	rx_data 		<= data_bit_dec;
+	rx_dvalid 		<= tclk_dly(1);
 
-	rx_data 	<= data_bit;
-	rx_dvalid 	<= tclk_dly(1) AND NOT tclk_dly_1_d;
-
-	error_valid_f1 <= tclk_dly(1) AND f1_f2_sel;
-	error_valid_f2 <= tclk_dly(1) AND NOT f1_f2_sel;
+	error_valid_f1 	<= tclk_dly(1) AND NOT(data_bit_dec);
+	error_valid_f2 	<= tclk_dly(1) AND data_bit_dec;
 
 
 ------------------------------------------------------------------------------------------------------
