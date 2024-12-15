@@ -76,7 +76,7 @@ ENTITY costas_loop IS
 		SINUSOID_W 		: NATURAL := 12;
 		SAMPLE_W 		: NATURAL := 12;
 		ACC_W 			: NATURAL := 32;
-		ERR_W 			: NATURAL := 16;
+		ERR_W 			: NATURAL := 32;
 		GAIN_W  		: NATURAL := 24;
 		SHIFT_W 		: NATURAL := 8;
 		DATA_W 			: NATURAL := 16;
@@ -421,8 +421,12 @@ BEGIN
 				loop_error <= (OTHERS => '0');
 				nco_adjust <= (OTHERS => '0');
 			ELSE
-				loop_error <= std_logic_vector(resize(rx_error_w,32));
-				nco_adjust <= lpf_adjust;
+				IF error_valid = '1' THEN
+					loop_error <= std_logic_vector(resize(rx_error_w,32));
+				END IF;
+				IF lpf_adj_valid = '1' THEN
+					nco_adjust <= lpf_adjust;
+				END IF;
 			END IF;
 		END IF;
 	END PROCESS obs_proc;
