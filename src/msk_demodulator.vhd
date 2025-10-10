@@ -103,6 +103,11 @@ ENTITY msk_demodulator IS
 		f1_error			: OUT std_logic_vector(31 DOWNTO 0);
 		f2_error			: OUT std_logic_vector(31 DOWNTO 0);
 
+		rx_dec_lbk_ena  	: IN  std_logic;
+		rx_dec_lbk_tclk 	: IN  std_logic;
+		rx_dec_lbk_f1    	: IN  std_logic_vector(1 DOWNTO 0);
+		rx_dec_lbk_f2 		: IN  std_logic_vector(1 DOWNTO 0);
+
 		rx_enable 			: IN  std_logic;
 		rx_svalid 			: IN  std_logic;
 		rx_samples 			: IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
@@ -164,6 +169,18 @@ ARCHITECTURE rtl OF msk_demodulator IS
 	SIGNAL error_valid_f1 	: std_logic;
 	SIGNAL error_valid_f2 	: std_logic;
 
+	SIGNAL lbk_f1_T 		: signed(2 DOWNTO 0);
+	SIGNAL lbk_f2_T 		: signed(2 DOWNTO 0);
+	SIGNAL lbk_f1_sum		: signed(2 DOWNTO 0);
+	SIGNAL lbk_f2_sum		: signed(2 DOWNTO 0);
+	SIGNAL lbk_sum			: signed(2 DOWNTO 0);
+	SIGNAL lbk_bit_enc_T 	: signed(1 DOWNTO 0);
+	SIGNAL lbk_tclk 		: std_logic_vector(0 TO 3);
+	SIGNAL lbk_bit_enc 		: signed(1 DOWNTO 0);
+	SIGNAL lbk_bit_dec		: std_logic;
+	SIGNAL lbk_f1_signed 	: signed(2 DOWNTO 0);
+	SIGNAL lbk_f2_signed 	: signed(2 DOWNTO 0);
+
 BEGIN
 
 	rx_init 		<= init OR NOT rx_enable;
@@ -183,7 +200,7 @@ BEGIN
 	BEGIN
 		IF clk'EVENT AND clk = '1' THEN
 
-			tclk_dly <= tclk & tclk_dly(0 TO 2);
+			tclk_dly 	 <= tclk  			& tclk_dly(0 TO 2);
 
 			IF tclk = '1' THEN
 	
@@ -218,11 +235,55 @@ BEGIN
 	data_bit_enc 	<= data_sum(DATA_W -1);
 	data_bit_dec	<= data_bit_enc WHEN data_bit_enc_t = '0' ELSE NOT data_bit_enc;
 
-	rx_data 		<= data_bit_dec;
-	rx_dvalid 		<= tclk_dly(1);
 
-	error_valid_f1 	<= tclk_dly(1) AND NOT(data_bit_dec);
-	error_valid_f2 	<= tclk_dly(1) AND data_bit_dec;
+ 	lbk_f1_signed 	<= resize(signed(    rx_dec_lbk_f1),     lbk_f1_signed'LENGTH);
+	lbk_f2_signed 	<= resize(signed(NOT rx_dec_lbk_f2) + 1, lbk_f2_signed'LENGTH) WHEN cclk = '0' ELSE 
+	 				   resize(signed(    rx_dec_lbk_f2),     lbk_f2_signed'LENGTH);
+
+	loopback_data_proc : PROCESS (clk)
+	BEGIN
+		IF clk'EVENT AND clk = '1' THEN
+
+			IF rx_dec_lbk_ena = '1' THEN
+
+				lbk_tclk	<= rx_dec_lbk_tclk	& lbk_tclk(0 TO 2);
+
+				IF rx_dec_lbk_tclk = '1' THEN
+	
+					lbk_f1_T <= signed(lbk_f1_signed);
+					lbk_f2_T <= signed(lbk_f2_signed);
+			
+					lbk_f1_sum <= signed(lbk_f1_signed) + lbk_f1_T;
+					lbk_f2_sum <= signed(lbk_f2_signed) + lbk_f2_T;
+				
+					lbk_bit_enc_T <= lbk_bit_enc;
+
+				END IF;
+
+			END IF;
+
+			IF rx_init = '1' THEN
+				lbk_f1_T 		<= (OTHERS => '0');
+				lbk_f2_T 		<= (OTHERS => '0');
+				lbk_f1_sum		<= (OTHERS => '0');
+				lbk_f2_sum		<= (OTHERS => '0');
+				lbk_bit_enc_T 	<= (OTHERS => '0');
+			END IF;
+
+		END IF;
+	END PROCESS loopback_data_proc;
+
+	lbk_sum 		<= signed(lbk_f1_sum) - signed(lbk_f2_sum);
+	lbk_bit_enc 	<= "01" WHEN lbk_sum(2) = '0' ELSE "11";
+	lbk_bit_dec		<= lbk_bit_enc(1) XOR lbk_bit_enc_T(1);
+
+	rx_data 		<= data_bit_dec WHEN rx_dec_lbk_ena = '0' ELSE lbk_bit_dec;
+	rx_dvalid 		<= tclk_dly(1)  WHEN rx_dec_lbk_ena = '0' ELSE lbk_tclk(1);
+
+	error_valid_f1 	<= tclk_dly(1) AND NOT(data_bit_dec) WHEN rx_dec_lbk_ena = '0' ELSE
+					   lbk_tclk(1) AND NOT(lbk_bit_dec);
+	error_valid_f2 	<= tclk_dly(1) AND data_bit_dec      WHEN rx_dec_lbk_ena = '0' ELSE
+					   lbk_tclk(1) AND lbk_bit_dec;
 
 
 ------------------------------------------------------------------------------------------------------
@@ -233,7 +294,7 @@ BEGIN
 ------------------------------------------------------------------------------------------------------
 -- Symbol Clock Recovery
 
-	tclk <= dclk XOR dclk_d;
+	tclk <= dclk XOR dclk_d WHEN rx_dec_lbk_ena = '0' ELSE rx_dec_lbk_tclk;
 
 	clock_rec_process : PROCESS (clk)
 	BEGIN
