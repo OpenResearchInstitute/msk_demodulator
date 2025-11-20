@@ -112,7 +112,8 @@ ENTITY msk_demodulator IS
 		rx_svalid 			: IN  std_logic;
 		rx_samples 			: IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
 
-		rx_data 			: OUT std_logic;
+		rx_data				: OUT std_logic;           -- Keep for hard decision mode
+		rx_data_soft			: OUT signed(15 DOWNTO 0); -- Full soft metric
 		rx_dvalid 			: OUT std_logic
 	);
 END ENTITY msk_demodulator;
@@ -231,8 +232,8 @@ BEGIN
 		END IF;
 	END PROCESS data_proc;
 
-	data_sum 		<= signed(data_f1_sum) - signed(data_f2_sum);
-	data_bit_enc 	<= data_sum(DATA_W -1);
+	data_sum 	<= signed(data_f1_sum) - signed(data_f2_sum); -- 16 bit signed
+	data_bit_enc 	<= data_sum(DATA_W -1);                       -- currently only using sign bit
 	data_bit_dec	<= data_bit_enc WHEN data_bit_enc_t = '0' ELSE NOT data_bit_enc;
 
 
@@ -278,6 +279,8 @@ BEGIN
 	lbk_bit_dec		<= lbk_bit_enc(1) XOR lbk_bit_enc_T(1);
 
 	rx_data 		<= data_bit_dec WHEN rx_dec_lbk_ena = '0' ELSE lbk_bit_dec;
+	rx_data_soft		<= data_sum;	-- Expose the full 16-bit difference
+
 	rx_dvalid 		<= tclk_dly(1)  WHEN rx_dec_lbk_ena = '0' ELSE lbk_tclk(1);
 
 	error_valid_f1 	<= tclk_dly(1) AND NOT(data_bit_dec) WHEN rx_dec_lbk_ena = '0' ELSE
