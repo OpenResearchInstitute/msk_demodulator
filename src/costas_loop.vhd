@@ -164,7 +164,7 @@ ARCHITECTURE rtl OF costas_loop IS
 	SIGNAL rx_error 		: signed(ACC_W -1 DOWNTO 0);
 	SIGNAL rx_error_w 		: signed(ERR_W -1 DOWNTO 0);
 
-	SIGNAL tclk_d			: std_logic;
+	SIGNAL tclk_dly			: std_logic_vector(0 TO 3);
 
 	SIGNAL lpf_adj_valid 	: std_logic;
 	SIGNAL lpf_adjust 		: std_logic_vector(NCO_W -1 DOWNTO 0);
@@ -312,7 +312,7 @@ BEGIN
 
 			IF enable = '1' THEN
 
-				tclk_d <= tclk;
+				tclk_dly <= tclk & tclk_dly(0 TO tclk_dly'LENGTH -2);
 
 				IF tclk = '1' THEN 
 					rx_sin_acc 		<= to_signed(0, ACC_W); 
@@ -345,6 +345,25 @@ BEGIN
 
 	END PROCESS integrate_process;
 
+-- Lock detect
+
+	u_lock_detect : ENTITY work.costas_lock_detect(rtl)
+	GENERIC MAP (
+		ACC_W => ACC_W,
+		CNT_W => 16,
+		THR_W => 32
+	)
+	PORT MAP (
+		clk 			=> clk,
+		init 			=> init,
+		tclk 			=> tclk_dly(1),
+		acc_valid 		=> error_valid,
+		cst_i_acc 		=> std_logic_vector(resize(rx_cos_T, ACC_W/2)),
+		cst_q_acc 		=> std_logic_vector(resize(rx_sin_T, ACC_W/2)),
+		cst_lock_thresh => std_logic_vector(to_unsigned(900000000, 32)),
+		cst_lock_count 	=> std_logic_vector(to_unsigned(128, 16)),
+		cst_lock 		=> OPEN
+	);
 
 ------------------------------------------------------------------------------------------------------
 --  __  __   __   __   __     __           __               ___    __       
