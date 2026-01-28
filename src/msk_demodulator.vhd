@@ -114,7 +114,17 @@ ENTITY msk_demodulator IS
 
 		rx_data				: OUT std_logic;           -- Keep for hard decision mode
 		rx_data_soft			: OUT signed(15 DOWNTO 0); -- Full soft metric
-		rx_dvalid 			: OUT std_logic
+		rx_dvalid 			: OUT std_logic;
+
+        symbol_lock_count		: IN  std_logic_vector(9 DOWNTO 0);
+        symbol_lock_threshold	: IN  std_logic_vector(15 DOWNTO 0);
+
+        cst_lock_f1 			: OUT std_logic;
+        cst_lock_f2				: OUT std_logic;
+        cst_lock_time_f1 		: OUT std_logic_vector(15 DOWNTO 0);
+        cst_lock_time_f2 		: OUT std_logic_vector(15 DOWNTO 0);
+        cst_unlock_f1 			: OUT std_logic;
+        cst_unlock_f2 			: OUT std_logic
 	);
 END ENTITY msk_demodulator;
 
@@ -383,7 +393,15 @@ BEGIN
 			rx_svalid 		=> rx_svalid,
 			rx_samples 		=> rx_samples,
 
-			data_out 		=> data_f1
+			data_out 		=> data_f1,
+
+        	symbol_lock_count		=> symbol_lock_count,
+        	symbol_lock_threshold	=> symbol_lock_threshold,
+
+        	cst_lock				=> cst_lock_f1,
+        	cst_lock_time 			=> cst_lock_time_f1,
+        	cst_unlock 				=> cst_unlock_f1
+
 		);
 
 
@@ -435,7 +453,14 @@ BEGIN
 			rx_svalid 		=> rx_svalid,
 			rx_samples 		=> rx_samples,
 
-			data_out 		=> data_f2
+			data_out 		=> data_f2,
+
+        	symbol_lock_count		=> symbol_lock_count,
+        	symbol_lock_threshold	=> symbol_lock_threshold,
+
+        	cst_lock				=> cst_lock_f2,
+        	cst_lock_time 			=> cst_lock_time_f2,
+        	cst_unlock 				=> cst_unlock_f2
 		);
 
 END ARCHITECTURE rtl;

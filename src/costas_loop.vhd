@@ -113,7 +113,14 @@ ENTITY costas_loop IS
 		rx_svalid 		: IN  std_logic;
 		rx_samples 		: IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
 
-		data_out 		: OUT std_logic_vector(DATA_W -1 DOWNTO 0)
+		data_out 		: OUT std_logic_vector(DATA_W -1 DOWNTO 0);
+
+        symbol_lock_count		: IN  std_logic_vector(9 DOWNTO 0);
+        symbol_lock_threshold	: IN  std_logic_vector(15 DOWNTO 0);
+
+        cst_lock				: OUT std_logic;
+        cst_lock_time  			: OUT std_logic_vector(15 DOWNTO 0);
+        cst_unlock 				: OUT std_logic
 	);
 END ENTITY costas_loop;
 
@@ -350,8 +357,9 @@ BEGIN
 	u_lock_detect : ENTITY work.costas_lock_detect(rtl)
 	GENERIC MAP (
 		ACC_W => ACC_W,
-		CNT_W => 16,
-		THR_W => 32
+		TCNT_W => 16,
+		ICNT_W => 10,
+		THR_W => 16
 	)
 	PORT MAP (
 		clk 			=> clk,
@@ -360,9 +368,11 @@ BEGIN
 		acc_valid 		=> error_valid,
 		cst_i_acc 		=> std_logic_vector(resize(rx_cos_T, ACC_W/2)),
 		cst_q_acc 		=> std_logic_vector(resize(rx_sin_T, ACC_W/2)),
-		cst_lock_thresh => std_logic_vector(to_unsigned(900000000, 32)),
-		cst_lock_count 	=> std_logic_vector(to_unsigned(128, 16)),
-		cst_lock 		=> OPEN
+		cst_lock_thresh => symbol_lock_threshold,
+		cst_lock_count 	=> symbol_lock_count,
+		cst_lock 		=> cst_lock,
+		cst_lock_time   => cst_lock_time,
+		cst_unlock 		=> cst_unlock
 	);
 
 ------------------------------------------------------------------------------------------------------

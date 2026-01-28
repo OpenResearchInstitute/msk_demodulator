@@ -73,7 +73,8 @@ ENTITY costas_lock_detect IS
 	GENERIC (
 		ACC_W 			: NATURAL := 16;
 		THR_W 			: NATURAL := 32;
-		CNT_W 			: NATURAL := 16
+		ICNT_W 			: NATURAL := 10;
+		TCNT_W 			: NATURAL := 16
 	);
 	PORT (
 		clk 			: IN  std_logic;
@@ -86,9 +87,11 @@ ENTITY costas_lock_detect IS
 		cst_q_acc 		: IN  std_logic_vector(ACC_W/2 -1 DOWNTO 0);
 
 		cst_lock_thresh : IN  std_logic_vector(THR_W -1 DOWNTO 0);
-		cst_lock_count 	: IN  std_logic_vector(CNT_W -1 DOWNTO 0);
+		cst_lock_count 	: IN  std_logic_vector(ICNT_W -1 DOWNTO 0);
 
-		cst_lock 		: OUT std_logic
+		cst_lock 		: OUT std_logic;
+		cst_lock_time	: OUT std_logic_vector(TCNT_W -1 DOWNTO 0);
+		cst_unlock 		: OUT std_logic
 	);
 END ENTITY costas_lock_detect;
 
@@ -105,50 +108,78 @@ ARCHITECTURE rtl OF costas_lock_detect IS
 	SIGNAL i_sqr 		: signed(ACC_W -1 DOWNTO 0);
 	SIGNAL q_sqr 		: signed(ACC_W -1 DOWNTO 0);
 
-	SIGNAL cntr  		: unsigned(CNT_W -1 DOWNTO 0);
+	SIGNAL icntr  		: unsigned(ICNT_W -1 DOWNTO 0);
 	SIGNAL acc_i 		: signed(ACC_W -1 DOWNTO 0);
 	SIGNAL acc_q 		: signed(ACC_W -1 DOWNTO 0);
 
-	SIGNAL iq_delta 	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL acc_iq_delta	: signed(ACC_W/2 -1 DOWNTO 0);
+
+	SIGNAL lock 		: std_logic;
+	SIGNAL lock_d 		: std_logic;
+	SIGNAL tcntr 	  	: unsigned(TCNT_W -1 DOWNTO 0);
+	SIGNAL lock_once 	: std_logic;
 
 BEGIN
 
+	cst_lock 		<= lock;
+	cst_lock_time 	<= std_logic_vector(tcntr);
+	cst_unlock 		<= '1' WHEN lock_d = '1' AND lock = '0' ELSE '0';
+
 	lock_proc : PROCESS (clk)
+		VARIABLE v_acc_iq_delta : signed(31 DOWNTO 0);
 	BEGIN
 		IF clk'EVENT AND clk = '1' THEN
 			IF init = '1' THEN
 				i_sqr 	<= (OTHERS => '0');
 				q_sqr 	<= (OTHERS => '0');
-				cntr  	<= (OTHERS => '0');
+				icntr  	<= (OTHERS => '0');
 				acc_i	<= (OTHERS => '0');
 				acc_q	<= (OTHERS => '0');
+				tcntr 	<= (OTHERS => '0');
+				lock 	<= '0';
+				lock_d 	<= '0';
+				lock_once <= '0';
 			ELSE
+
 				IF tclk = '1' AND acc_valid = '1' THEN
 
 					i_sqr <= signed(cst_i_acc) * signed(cst_i_acc);
 					q_sqr <= signed(cst_q_acc) * signed(cst_q_acc);
 
-					IF cntr > 0 THEN
+					IF icntr > 0 THEN
 						acc_i <= acc_i + i_sqr;
 						acc_q <= acc_q + q_sqr;
-						cntr <= cntr -1;
+						icntr <= icntr -1;
 					ELSE
-						cntr 		<= unsigned(cst_lock_count);
+						icntr 		<= unsigned(cst_lock_count);
 						acc_i  		<= (OTHERS => '0');
 						acc_q  		<= (OTHERS => '0');
 					END IF;
 
 				END IF;
 
-				IF cntr = 0 THEN
-					iq_delta <= signed(acc_i) - signed(acc_q);
+				v_acc_iq_delta := acc_i - acc_q;
+
+				IF icntr = 0 THEN
+					acc_iq_delta <= resize(shift_right(v_acc_iq_delta, acc_iq_delta'LENGTH), acc_iq_delta'LENGTH);
 				END IF;
 
-				IF iq_delta > signed(cst_lock_thresh) THEN
-					cst_lock <= '1';
+				IF acc_iq_delta > signed(cst_lock_thresh) THEN
+					lock <= '1';
 				ELSE
-					cst_lock <= '0';
+					lock <= '0';
 				END IF;
+
+				lock_d <= lock;
+
+				IF tclk = '1' AND lock = '0' AND lock_once = '0' THEN
+					tcntr <= tcntr + 1;
+				END IF;
+
+				IF tclk = '1' AND lock = '1' THEN
+					lock_once <= '1';
+				END IF;
+
 			END IF;
 		END IF;
 	END PROCESS lock_proc;
