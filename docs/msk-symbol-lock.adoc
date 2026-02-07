@@ -204,29 +204,64 @@ The accumulated values on both the I arm and Q arm provide a useful signal to de
 
 [latexmath]
 ++++
-acc_i \approx acc_q
+\lvert acc_i \rvert \approx \lvert acc_q \rvert
 ++++
 
 And when the loop is locked:
 
 [latexmath]
 ++++
-acc_i \gg acc_q
+\lvert acc_i \rvert \gt \lvert acc_q \rvert
 ++++
 
-The signs of the latexmath:[acc_i] and latexmath:[acc_q] may differ, we cannot do a simple comparison, so we can square them then take the difference:
-
-[latexmath]
-++++
-T_{ms} = acc_i^2 - acc_q^2
-++++
-
-When the loop is unlocked latexmath:[T_{ms}] will be closer to 0, and when locked latexmath:[T_{ms}] will be closer to latexmath:[acc_i^2]. Since there is ambiguity we can use a programmable threshold latexmath:[T_{th}] to set the final lock detection:
+The accumulator output represents the correlation between the received signal and the NCO reference over one bit period. Squaring this correlation produces an instantaneous (per bit) energy metric for each arm:
 
 [latexmath]
 ++++
-lock = T_{ms} > T_{th}
+\begin{align*}
+eng_{i,k} & = acc_{i,k}^2 \text{(squared correlation, proportional to energy)} \\
+eng_{q,k} & = acc_{q,k}^2
+\end{align*}
 ++++
+
+The instantaneous energy will be very noisy and is not suitable for directly detecting symbol lock. Rather we can accumulate the per bit energy over detection period latexmath:[M].
+
+[latexmath]
+++++
+\begin{align*}
+sum\_eng_{i,m} & = \sum_{k=mM}^{((m+1)M)-1} eng_{i,k}  \\
+sum\_eng_{q,m} & = \sum_{k=mM}^{((m+1)M)-1} eng_{q,k}
+\end{align*}
+++++
+
+The energy sums can then be used for lock detection by looking at the differences between the I and Q arms. Since, these are energy metrics, we might ask why not compute a more standard RMS power for each arm and use it for lock detection. There are a couple of reasons why the energy sums is the preferred choice:
+
+1. RMS power is latexmath:[\sqrt(\frac{1}{M}\sum_{M} eng_{i/q.m})] which requires computing a division by latexmath:[N] and a square root. These are expensive (resources) and since are looking at the difference between the I and Q arms RMS power doesn't provide any more information than the energy sums.
+2. Using energy sums provides a larger detection resolution. RMS power is normalized by latexmath:[N] and the magnitude of the mean is further reduced by the square root. By using the un-normalized energy sums we have larger amplitude signals. When unlocked the I arm and Q arm are expected to have similar energy levels, and those relative levels will be about the same for both the energy sums and the RMS power. When the loop is locked the I arm energy sum will have a much larger mangitude than the RMS power, and the Q arm is expect to still be near zero for both the energy sums and RMS power. This provides a much larger range for selecting a lock threshold.
+
+Now that we have the energy sums over the detection period latexmath:[M] we can determine symbol sync lock status as follows:
+
+[latexmath]
+++++
+L_m = sum\_eng_{i,m} - sum\_eng_{q,m}
+++++
+
+[latexmath]
+++++
+\begin{align*}
+L_m & \ge L_{th} \rightarrow \text{locked} \\
+L_m & \lt L_{th} \rightarrow \text{unlocked}
+\end{align*}
+++++
+
+where latexmath:[L_{th}] is a configurable value.
+
+The lock detection status is updated at each interval. There are two parameters that need to be configured for the lock detection to perform well: interval and threshold.
+
+
+=== Selection of Lock Detection Interval and Threshold
+
+
 
 == Summary
 
