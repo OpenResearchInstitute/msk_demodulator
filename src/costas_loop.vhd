@@ -324,8 +324,13 @@ BEGIN
 				IF tclk = '1' THEN 
 					rx_sin_acc 		<= to_signed(0, ACC_W); 
 					rx_cos_acc 		<= to_signed(0, ACC_W); 
-					rx_sin_dump 	<= resize(shift_right(signed(rx_sin_acc), SINUSOID_W + 1), ACC_W); -- compensate for doubling the reference
-					rx_cos_dump 	<= resize(shift_right(signed(rx_cos_acc), SINUSOID_W + 1), ACC_W); -- compensate for doubling the reference
+
+                                        rx_sin_dump     <= resize(shift_right(signed(rx_sin_acc), SINUSOID_W), ACC_W);
+                                        rx_cos_dump     <= resize(shift_right(signed(rx_cos_acc), SINUSOID_W), ACC_W);
+
+					--rx_sin_dump 	<= resize(shift_right(signed(rx_sin_acc), SINUSOID_W + 1), ACC_W); -- compensate for doubling the reference
+					--rx_cos_dump 	<= resize(shift_right(signed(rx_cos_acc), SINUSOID_W + 1), ACC_W); -- compensate for doubling the reference
+
 					rx_sin_T 		<= rx_sin_dump;
 					rx_sin_T_neg 	<= (NOT rx_sin_dump) + 1;
 					rx_cos_T 		<= rx_cos_dump;
