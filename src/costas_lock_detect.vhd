@@ -147,8 +147,11 @@ BEGIN
 					q_sqr <= signed(cst_q_acc) * signed(cst_q_acc);
 
 					IF icntr > 0 THEN
-						acc_i <= acc_i + i_sqr;
-						acc_q <= acc_q + q_sqr;
+						--acc_i <= acc_i + i_sqr;
+						--acc_q <= acc_q + q_sqr;
+						-- to prevent 32-bit overflow at full signal scale
+						acc_i <= acc_i + shift_right(i_sqr, 3); 
+						acc_q <= acc_q + shift_right(q_sqr, 3);
 						icntr <= icntr -1;
 					ELSE
 						icntr 		<= unsigned(cst_lock_count);
