@@ -112,7 +112,9 @@ ARCHITECTURE rtl OF costas_lock_detect IS
 	SIGNAL acc_i 		: signed(ACC_W -1 DOWNTO 0);
 	SIGNAL acc_q 		: signed(ACC_W -1 DOWNTO 0);
 
-	SIGNAL acc_iq_delta	: signed(ACC_W/2 -1 DOWNTO 0);
+	-- Original line
+	--SIGNAL acc_iq_delta	: signed(ACC_W/2 -1 DOWNTO 0);
+	SIGNAL acc_iq_delta	: signed(ACC_W -1 DOWNTO 0);
 
 	SIGNAL lock 		: std_logic;
 	SIGNAL lock_d 		: std_logic;
@@ -164,7 +166,9 @@ BEGIN
 				v_acc_iq_delta := acc_i - acc_q;
 
 				IF icntr = 0 THEN
-					acc_iq_delta <= resize(shift_right(v_acc_iq_delta, acc_iq_delta'LENGTH), acc_iq_delta'LENGTH);
+					-- Original line
+					--acc_iq_delta <= resize(shift_right(v_acc_iq_delta, acc_iq_delta'LENGTH), acc_iq_delta'LENGTH);
+					acc_iq_delta <= v_acc_iq_delta;
 				END IF;
 
 				IF acc_iq_delta > signed(cst_lock_thresh) THEN
