@@ -370,7 +370,7 @@ BEGIN
 		ACC_W => ACC_W,
 		TCNT_W => 16,
 		ICNT_W => 10,
-		THR_W => 16
+		THR_W => 32
 	)
 	PORT MAP (
 		clk 			=> clk,
@@ -379,7 +379,7 @@ BEGIN
 		acc_valid 		=> error_valid,
 		cst_i_acc 		=> std_logic_vector(resize(rx_cos_T, ACC_W/2)),
 		cst_q_acc 		=> std_logic_vector(resize(rx_sin_T, ACC_W/2)),
-		cst_lock_thresh => symbol_lock_threshold,
+		cst_lock_thresh => symbol_lock_threshold & x"0000",
 		cst_lock_count 	=> symbol_lock_count,
 		cst_lock 		=> cst_lock,
 		cst_lock_time   => cst_lock_time,
