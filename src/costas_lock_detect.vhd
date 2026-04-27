@@ -91,7 +91,14 @@ ENTITY costas_lock_detect IS
 
 		cst_lock 		: OUT std_logic;
 		cst_lock_time	: OUT std_logic_vector(TCNT_W -1 DOWNTO 0);
-		cst_unlock 		: OUT std_logic
+		cst_unlock 		: OUT std_logic;
+
+		-- Ports added for ILA in order to calibrate symbol lock threshold
+		cst_acc_i		: OUT std_logic_vector(ACC_W -1 DOWNTO 0);
+		cst_acc_q		: OUT std_logic_vector(ACC_W -1 DOWNTO 0);
+		cst_acc_iq_delta	: OUT std_logic_vector(ACC_W -1 DOWNTO 0)
+
+
 	);
 END ENTITY costas_lock_detect;
 
@@ -126,6 +133,13 @@ BEGIN
 	cst_lock 		<= lock;
 	cst_lock_time 	<= std_logic_vector(tcntr);
 	cst_unlock 		<= '1' WHEN lock_d = '1' AND lock = '0' ELSE '0';
+
+	-- Concurrent assignments added for ILA in order to calibrate symbol lock threshold
+	cst_acc_i <= std_logic_vector(acc_i);
+	cst_acc_q <= std_logic_vector(acc_q);
+	cst_acc_iq_delta <= std_logic_vector(resize(acc_iq_delta, ACC_W));
+
+
 
 	lock_proc : PROCESS (clk)
 		VARIABLE v_acc_iq_delta : signed(31 DOWNTO 0);

@@ -116,15 +116,22 @@ ENTITY msk_demodulator IS
 		rx_data_soft			: OUT signed(15 DOWNTO 0); -- Full soft metric
 		rx_dvalid 			: OUT std_logic;
 
-        symbol_lock_count		: IN  std_logic_vector(9 DOWNTO 0);
-        symbol_lock_threshold	: IN  std_logic_vector(15 DOWNTO 0);
+		symbol_lock_count		: IN  std_logic_vector(9 DOWNTO 0);
+		symbol_lock_threshold	: IN  std_logic_vector(15 DOWNTO 0);
 
-        cst_lock_f1 			: OUT std_logic;
-        cst_lock_f2				: OUT std_logic;
-        cst_lock_time_f1 		: OUT std_logic_vector(15 DOWNTO 0);
-        cst_lock_time_f2 		: OUT std_logic_vector(15 DOWNTO 0);
-        cst_unlock_f1 			: OUT std_logic;
-        cst_unlock_f2 			: OUT std_logic
+		cst_lock_f1 			: OUT std_logic;
+		cst_lock_f2				: OUT std_logic;
+		cst_lock_time_f1 		: OUT std_logic_vector(15 DOWNTO 0);
+		cst_lock_time_f2 		: OUT std_logic_vector(15 DOWNTO 0);
+		cst_unlock_f1 			: OUT std_logic;
+		cst_unlock_f2 			: OUT std_logic;
+
+		-- Ports added for ILA in order to calibrate symbol lock threshold
+		-- I'm only putting in F1 because that should be sufficient
+		dbg_acc_i_f1			: OUT std_logic_vector(ACC_W -1 DOWNTO 0);
+		dbg_acc_q_f1			: OUT std_logic_vector(ACC_W -1 DOWNTO 0);
+		dbg_acc_iq_delta_f1		: OUT std_logic_vector(ACC_W -1 DOWNTO 0)
+
 	);
 END ENTITY msk_demodulator;
 
@@ -395,12 +402,17 @@ BEGIN
 
 			data_out 		=> data_f1,
 
-        	symbol_lock_count		=> symbol_lock_count,
-        	symbol_lock_threshold	=> symbol_lock_threshold,
+			symbol_lock_count		=> symbol_lock_count,
+			symbol_lock_threshold	=> symbol_lock_threshold,
 
-        	cst_lock				=> cst_lock_f1,
-        	cst_lock_time 			=> cst_lock_time_f1,
-        	cst_unlock 				=> cst_unlock_f1
+			cst_lock				=> cst_lock_f1,
+			cst_lock_time 			=> cst_lock_time_f1,
+			cst_unlock 				=> cst_unlock_f1,
+
+			-- Port mapping added for ILA in order to calibrate symbol lock threshold
+			dbg_acc_i => dbg_acc_i_f1,
+			dbg_acc_q => dbg_acc_q_f1,
+			dbg_acc_iq_delta => dbg_acc_iq_delta_f1
 
 		);
 
@@ -455,12 +467,19 @@ BEGIN
 
 			data_out 		=> data_f2,
 
-        	symbol_lock_count		=> symbol_lock_count,
-        	symbol_lock_threshold	=> symbol_lock_threshold,
+			symbol_lock_count		=> symbol_lock_count,
+			symbol_lock_threshold	=> symbol_lock_threshold,
 
-        	cst_lock				=> cst_lock_f2,
-        	cst_lock_time 			=> cst_lock_time_f2,
-        	cst_unlock 				=> cst_unlock_f2
+			cst_lock				=> cst_lock_f2,
+			cst_lock_time 			=> cst_lock_time_f2,
+			cst_unlock 				=> cst_unlock_f2,
+
+			-- Port mapping added for ILA in order to calibrate symbol lock threshold
+			-- connect to open because we are planning on using F1 only for threshold calibration
+			dbg_acc_i => open,
+			dbg_acc_q => open,
+			dbg_acc_iq_delta => open
+
 		);
 
 END ARCHITECTURE rtl;

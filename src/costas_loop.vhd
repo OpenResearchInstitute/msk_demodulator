@@ -115,12 +115,18 @@ ENTITY costas_loop IS
 
 		data_out 		: OUT std_logic_vector(DATA_W -1 DOWNTO 0);
 
-        symbol_lock_count		: IN  std_logic_vector(9 DOWNTO 0);
-        symbol_lock_threshold	: IN  std_logic_vector(15 DOWNTO 0);
+		symbol_lock_count		: IN  std_logic_vector(9 DOWNTO 0);
+		symbol_lock_threshold	: IN  std_logic_vector(15 DOWNTO 0);
 
-        cst_lock				: OUT std_logic;
-        cst_lock_time  			: OUT std_logic_vector(15 DOWNTO 0);
-        cst_unlock 				: OUT std_logic
+		cst_lock				: OUT std_logic;
+		cst_lock_time  			: OUT std_logic_vector(15 DOWNTO 0);
+		cst_unlock 				: OUT std_logic;
+
+		-- Ports added for ILA in order to calibrate symbol lock threshold
+		dbg_acc_i		: OUT std_logic_vector(ACC_W -1 DOWNTO 0);
+		dbg_acc_q		: OUT std_logic_vector(ACC_W -1 DOWNTO 0);
+		dbg_acc_iq_delta	: OUT std_logic_vector(ACC_W -1 DOWNTO 0)
+
 	);
 END ENTITY costas_loop;
 
@@ -377,7 +383,13 @@ BEGIN
 		cst_lock_count 	=> symbol_lock_count,
 		cst_lock 		=> cst_lock,
 		cst_lock_time   => cst_lock_time,
-		cst_unlock 		=> cst_unlock
+		cst_unlock 		=> cst_unlock,
+
+		-- Port mapping added for ILA in order to calibrate symbol lock threshold
+		cst_acc_i => dbg_acc_i, 
+		cst_acc_q => dbg_acc_q,
+		cst_acc_iq_delta => dbg_acc_iq_delta
+
 	);
 
 ------------------------------------------------------------------------------------------------------
