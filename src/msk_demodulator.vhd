@@ -78,7 +78,8 @@ ENTITY msk_demodulator IS
 		SAMPLE_W 		: NATURAL := 12;
 		DATA_W 			: NATURAL := 16;
 		GAIN_W 			: NATURAL := 24;
-		SHIFT_W 		: NATURAL := 8
+		SHIFT_W 		: NATURAL := 8;
+		SAMPLE_GATED_NCO	: BOOLEAN := False  -- FALSE = original; TRUE = sample-gate NCO (clk /= fs)
 	);
 	PORT (
 		clk 				: IN  std_logic;
@@ -368,7 +369,8 @@ BEGIN
 			SINUSOID_W 		=> SINUSOID_W,
 			SAMPLE_W 		=> SAMPLE_W,
 			DATA_W 			=> DATA_W,
-			PHASE_INIT 		=> NCO_2PI
+			PHASE_INIT 		=> NCO_2PI,
+			SAMPLE_GATED_NCO	=> SAMPLE_GATED_NCO
 		)
 		PORT MAP (
 			clk 			=> clk,
@@ -433,7 +435,8 @@ BEGIN
 			SINUSOID_W 		=> SINUSOID_W,
 			SAMPLE_W 		=> SAMPLE_W,
 			DATA_W 			=> DATA_W,
-			PHASE_INIT 		=> NCO_2PI
+			PHASE_INIT 		=> NCO_2PI,
+			SAMPLE_GATED_NCO	=> SAMPLE_GATED_NCO
 		)
 		PORT MAP (
 			clk 			=> clk,

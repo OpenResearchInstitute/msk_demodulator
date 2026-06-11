@@ -81,7 +81,12 @@ ENTITY costas_loop IS
 		SHIFT_W 		: NATURAL := 8;
 		DATA_W 			: NATURAL := 16;
 		PHASE_INIT 		: UNSIGNED(32 -1 DOWNTO 0) := (OTHERS => '0');
-		ASSERT_ENA 		: BOOLEAN := False
+		ASSERT_ENA 		: BOOLEAN := False;
+		-- FALSE (default): NCO advances every clk -- original behavior, for clk == sample rate
+		--                  (Pluto native 61.44 MHz, LibreSDR 245/4 = 61.44 MHz domain).
+		-- TRUE: NCO advances once per valid sample -- for clk /= sample rate, where samples
+		--       arrive on rx_svalid (e.g. Haifuraiya: 100 MHz fabric, ~625 ksps channel).
+		SAMPLE_GATED_NCO	: BOOLEAN := False
 	);
 	PORT (
 		clk 			: IN  std_logic;
@@ -144,6 +149,7 @@ ARCHITECTURE rtl OF costas_loop IS
 	CONSTANT MAX_ACC_NEG 	: INTEGER := -1 * MAX_ACC_POS;
 
 	SIGNAL car_phase 		: std_logic_vector(NCO_W -1 DOWNTO 0);
+	SIGNAL nco_en 			: std_logic;  -- carrier NCO clock-enable: advance once per valid sample
 	SIGNAL car_sin 			: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 	SIGNAL car_cos 			: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 	SIGNAL car_sin_d		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
@@ -486,6 +492,12 @@ BEGIN
 ------------------------------------------------------------------------------------------------------
 -- NCO
 
+	-- When SAMPLE_GATED_NCO is FALSE this is exactly the original RTL (nco_en = enable),
+	-- so designs that don't set the generic are byte-for-byte unchanged. When TRUE, the
+	-- carrier NCO advances once per valid sample, matching the integrate/dump datapath --
+	-- required when clk is the fabric clock rather than the sample rate.
+	nco_en <= (enable and rx_svalid) when SAMPLE_GATED_NCO else enable;
+
 	U_carrier_nco : ENTITY work.nco(rtl)
 	GENERIC MAP (
 		NCO_W 			=> NCO_W,
@@ -495,7 +507,7 @@ BEGIN
 		clk 			=> clk,
 		init 			=> init,
 
-		enable 			=> enable,
+		enable 			=> nco_en,
 	
 		discard_nco 	=> discard_rxnco,
 		freq_word 		=> freq_word,
