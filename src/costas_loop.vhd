@@ -116,7 +116,9 @@ ENTITY costas_loop IS
 		error_valid		: IN  std_logic;
 
 		rx_svalid 		: IN  std_logic;
-		rx_samples 		: IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
+		--rx_samples 		: IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
+		rx_i_samples    : IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
+		rx_q_samples    : IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
 
 		data_out 		: OUT std_logic_vector(DATA_W -1 DOWNTO 0);
 
@@ -146,44 +148,48 @@ END ENTITY costas_loop;
 ARCHITECTURE rtl OF costas_loop IS 
 
 	CONSTANT MAX_ACC_POS	: NATURAL := 2**(ACC_W -2);
-	CONSTANT MAX_ACC_NEG 	: INTEGER := -1 * MAX_ACC_POS;
+	CONSTANT MAX_ACC_NEG	: INTEGER := -1 * MAX_ACC_POS;
 
-	SIGNAL car_phase 		: std_logic_vector(NCO_W -1 DOWNTO 0);
-	SIGNAL nco_en 			: std_logic;  -- carrier NCO clock-enable: advance once per valid sample
-	SIGNAL car_sin 			: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
-	SIGNAL car_cos 			: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
+	SIGNAL car_phase		: std_logic_vector(NCO_W -1 DOWNTO 0);
+	SIGNAL nco_en			: std_logic;  -- carrier NCO clock-enable: advance once per valid sample
+	SIGNAL car_sin			: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
+	SIGNAL car_cos			: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 	SIGNAL car_sin_d		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 	SIGNAL car_cos_d		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
 
-	SIGNAL rx_sin			: signed(2*SINUSOID_W -1 DOWNTO 0);
-	SIGNAL rx_cos			: signed(2*SINUSOID_W -1 DOWNTO 0);
-	SIGNAL rx_sin_filt_sum 	: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_cos_filt_sum 	: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_sin_filt_sat 	: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_cos_filt_sat 	: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_sin_filt_acc 	: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_cos_filt_acc 	: signed(ACC_W -1 DOWNTO 0);
+	--SIGNAL rx_sin			: signed(2*SINUSOID_W -1 DOWNTO 0);
+	--SIGNAL rx_cos			: signed(2*SINUSOID_W -1 DOWNTO 0);
+	SIGNAL rx_sin           : signed(SINUSOID_W + SAMPLE_W DOWNTO 0);
+	SIGNAL rx_cos           : signed(SINUSOID_W + SAMPLE_W DOWNTO 0);
+	SIGNAL rx_sin_filt_sum	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_filt_sum	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_filt_sat	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_filt_sat	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_filt_acc	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_filt_acc	: signed(ACC_W -1 DOWNTO 0);
 	SIGNAL rx_sin_acc_sum   : signed(ACC_W -1 DOWNTO 0);
 	SIGNAL rx_cos_acc_sum   : signed(ACC_W -1 DOWNTO 0);
 	SIGNAL rx_sin_acc_sat   : signed(ACC_W -1 DOWNTO 0);
 	SIGNAL rx_cos_acc_sat   : signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_sin_sum		: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_cos_sum		: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_sin_acc		: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_cos_acc		: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_sin_dump		: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_cos_dump		: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_sin_T			: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_cos_T			: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_sin_T_neg 	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_sum	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_sum	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_acc	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_acc	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_dump	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_dump	: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_T		: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_cos_T		: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_sin_T_neg	: signed(ACC_W -1 DOWNTO 0);
 
-	SIGNAL rx_samples_d 	: std_logic_vector(SAMPLE_W -1 DOWNTO 0);
+	--SIGNAL rx_samples_d	: std_logic_vector(SAMPLE_W -1 DOWNTO 0);
+	SIGNAL rx_i_samples_d   : std_logic_vector(SAMPLE_W -1 DOWNTO 0);
+	SIGNAL rx_q_samples_d   : std_logic_vector(SAMPLE_W -1 DOWNTO 0);
 
-	SIGNAL rx_cos_slice 	: std_logic;
-	SIGNAL rx_error 		: signed(ACC_W -1 DOWNTO 0);
-	SIGNAL rx_error_w 		: signed(ERR_W -1 DOWNTO 0);
+	SIGNAL rx_cos_slice	: std_logic;
+	SIGNAL rx_error		: signed(ACC_W -1 DOWNTO 0);
+	SIGNAL rx_error_w	: signed(ERR_W -1 DOWNTO 0);
 
-	SIGNAL tclk_dly			: std_logic_vector(0 TO 3);
+	SIGNAL tclk_dly		: std_logic_vector(0 TO 3);
 
 	SIGNAL lpf_adj_valid 	: std_logic;
 	SIGNAL lpf_adjust 		: std_logic_vector(NCO_W -1 DOWNTO 0);
@@ -203,24 +209,31 @@ BEGIN
 
 		IF clk'EVENT AND clk = '1' THEN
 
+
 			IF enable = '1' THEN
 
-				rx_samples_d	<= rx_samples;
-				car_sin_d 		<= car_sin;
-				car_cos_d 		<= car_cos;
+				rx_i_samples_d  <= rx_i_samples;
+				rx_q_samples_d  <= rx_q_samples;
+				car_sin_d       <= car_sin;
+				car_cos_d       <= car_cos;
 
-				rx_sin 			<= signed(car_sin_d) * signed(rx_samples_d);
-				rx_cos 			<= signed(car_cos_d) * signed(rx_samples_d);
+				-- (car_cos + j*car_sin) * (rx_i + j*rx_q)
+				-- rx_q_samples_d = 0  ->  reduces bit-exactly to the original real mixer
+				rx_cos <= resize(signed(car_cos_d) * signed(rx_i_samples_d), rx_cos'length)
+					- resize(signed(car_sin_d) * signed(rx_q_samples_d), rx_cos'length);
+				rx_sin <= resize(signed(car_sin_d) * signed(rx_i_samples_d), rx_sin'length)
+					+ resize(signed(car_cos_d) * signed(rx_q_samples_d), rx_sin'length);
 
 			END IF;
 
 			IF init = '1' THEN
-				rx_samples_d	<= (OTHERS => '0');
-				car_sin_d 		<= (OTHERS => '0');
-				car_cos_d 		<= (OTHERS => '0');
-				rx_sin 			<= (OTHERS => '0');
-				rx_cos 			<= (OTHERS => '0');
-			END IF; 
+				rx_i_samples_d  <= (OTHERS => '0');
+				rx_q_samples_d  <= (OTHERS => '0');
+				car_sin_d       <= (OTHERS => '0');
+				car_cos_d       <= (OTHERS => '0');
+				rx_sin          <= (OTHERS => '0');
+				rx_cos          <= (OTHERS => '0');
+			END IF;
 
 		END IF;
 
@@ -427,7 +440,7 @@ BEGIN
 	data_out <= std_logic_vector(resize(shift_right(rx_cos_dump, 1), DATA_W));
 
 	cos_samples	<= car_cos;
-	sin_samples <= car_sin;
+	sin_samples     <= car_sin;
 
 
 ------------------------------------------------------------------------------------------------------

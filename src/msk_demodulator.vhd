@@ -104,18 +104,20 @@ ENTITY msk_demodulator IS
 		f1_error			: OUT std_logic_vector(31 DOWNTO 0);
 		f2_error			: OUT std_logic_vector(31 DOWNTO 0);
 
-		rx_dec_lbk_ena  	: IN  std_logic;
-		rx_dec_lbk_tclk 	: IN  std_logic;
-		rx_dec_lbk_f1    	: IN  std_logic_vector(1 DOWNTO 0);
-		rx_dec_lbk_f2 		: IN  std_logic_vector(1 DOWNTO 0);
+		rx_dec_lbk_ena			: IN  std_logic;
+		rx_dec_lbk_tclk			: IN  std_logic;
+		rx_dec_lbk_f1			: IN  std_logic_vector(1 DOWNTO 0);
+		rx_dec_lbk_f2			: IN  std_logic_vector(1 DOWNTO 0);
 
-		rx_enable 			: IN  std_logic;
-		rx_svalid 			: IN  std_logic;
-		rx_samples 			: IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
+		rx_enable			: IN  std_logic;
+		rx_svalid			: IN  std_logic;
+		--rx_samples			: IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
+		rx_i_samples			: IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
+		rx_q_samples			: IN  std_logic_vector(SAMPLE_W -1 DOWNTO 0);
 
 		rx_data				: OUT std_logic;           -- Keep for hard decision mode
 		rx_data_soft			: OUT signed(15 DOWNTO 0); -- Full soft metric
-		rx_dvalid 			: OUT std_logic;
+		rx_dvalid			: OUT std_logic;
 
 		symbol_lock_count		: IN  std_logic_vector(9 DOWNTO 0);
 		symbol_lock_threshold	: IN  std_logic_vector(15 DOWNTO 0);
@@ -400,7 +402,9 @@ BEGIN
 			error_valid		=> error_valid_f1,
 
 			rx_svalid 		=> rx_svalid,
-			rx_samples 		=> rx_samples,
+			--rx_samples 		=> rx_samples,
+			rx_i_samples    => rx_i_samples,
+			rx_q_samples    => rx_q_samples,
 
 			data_out 		=> data_f1,
 
@@ -466,7 +470,9 @@ BEGIN
 			error_valid 	=> error_valid_f2,
 
 			rx_svalid 		=> rx_svalid,
-			rx_samples 		=> rx_samples,
+			--rx_samples 		=> rx_samples,
+			rx_i_samples    => rx_i_samples,
+			rx_q_samples    => rx_q_samples,
 
 			data_out 		=> data_f2,
 
