@@ -24,6 +24,27 @@ abrasion, no IF, no post-NCO), and we get the ~3 dB back. On a transponder,
 
 ---
 
+## STATUS is end of session (sim chain GREEN end-to-end)
+
+The plan below is now mostly executed. Phases 0 to 3 and 5 are green in sim;
+the Phase-3 go/no-go (§6) PASSED - we're on the complex path, not Plan B.
+Remaining: Phase 4 lock hysteresis
+and Phase 6 hardware bring-up (gates below).
+
+What landed (verify against `git log` on complex-baseband-rx):
+  Cast POLYMORPH      @ 3da5f58 - complex 4-mult mixer + Q port (Phases 1?2)
+  Cast TRUE SEEING              - rx_top soft-path negation + 38000/24000 sync thresholds (Phase 3 fix)
+  Cast REVERSE GRAVITY          - channelizer commutator reversed, FFT bin 0 = true DC
+  Cast ALTER SELF               - channelizer TB either/or + 3 test-harness fixes (Phase 5 harness)
+
+Validated: corr_peak +50001; HUNTING to LOCKED at 40 ms; frame_sync_locked ~120 ms;
+held LOCKED across 200 ms, missed_syncs=0; opv-decode -3 clean through the channelizer TB.
+
+NOTE: keep the rx_top real-input path alive until Phase 6 clears on SILICON
+(sim-green is not silicon-green).
+
+---
+
 ## 1. Starting point & config discipline
 
 - **Fork point:** `msk_demodulator` branch `tx_sample_scale` (most recent active
@@ -185,21 +206,66 @@ a validate-before-trust change landing.
 
 ## 8. Bug Hunt Trophy Case
 
-*(fill as we go — bug, root cause, fix, how caught)*
+### 8.1 The two-stage polarity inversion (the Phase-3 war story)
+- Symptom: carrier locked but frame sync never fired; corr_peak pinned at
+  ~0x71C5 (29125) - a payload-coincidence floor.
+- Root cause: TWO inversions on TWO paths.
+  - Hard path: demod bits were the bitwise complement of the TX sync word
+    (hand-decoded at the 40 ms frame). Fixed by RX_INVERT='1' -> rx_bit_corr
+    <= not rx_data. Corrected the hard bit - corr_peak did NOT move.
+  - The non-movement WAS the diagnosis: frame_sync_detector_soft correlates on
+    the SOFT path (Sum soft_sr(i) x bipolar_sync[i], negative soft = '1'), not
+    on rx_bit. Fixing the hard bit could never move the peak.
+  - Soft path: added rx_data_soft_corr <= rx_data_soft when RX_INVERT='0' else
+    -rx_data_soft; rewired u_fsync s_axis_soft_tdata to it. -49969 -> +50001.
+- Threshold recal: corrected peak ~= 24 taps x +/-2080 ~= 50001, BELOW stock
+  HUNTING=60000. Set HUNTING=>38000, LOCKED=>24000 (38000 ~= 76% of peak,
+  above the ~29125 coincidence floor).
+- Lesson: a polarity flip on one path that doesn't move the metric means the
+  metric reads a DIFFERENT path. Follow the metric all the way back to source.
+- HW carry-forward: RX_INVERT lives only in the TB today (rx_top default still
+  '0'); the board instantiation must set it, kept settable (ADRV9002 path may
+  want the opposite). Recalibrate on silicon via corr_peak / cst_lock.
 
-- _(none yet — branch not cut)_
+### 8.2 REVERSE GRAVITY -> mirrored channel map
+- Commutator reversed: branch k marries phase N-k; FFT bin 0 = true DC channel.
+  Validated Test 5: symmetric skirt about ch0 (ch1~=ch63, ch2~=ch62, ch30-33
+  rejected).
+- Consequence: channel<->frequency map is MIRRORED (channel k <-> N-k). Moot for
+  OPV (ch0 is the fixed point); multi-channel cataloging must follow the reversed
+  convention. CARRY INTO THE MDT detection-record frequency map.
+- Board bitstream predates this -> channelizer RE-SYNTHESIS at deploy.
 
+### 8.3 Test-harness fixes (test-side only, folded into ALTER SELF)
+- Test 6: expect mirror channel TONE_EXPECT = N_CHANNELS - TONE_BIN (generation
+  unchanged); PASS at ch48.
+- Test 8: retired with honors; watched top-level m_axis_chans_* now inside u_rx.
+- Test 10: ch0 power bound widened to [2M, 5M].
 ---
 
 ## 9. Version Stack (pin everything)
 
-| Component | Version / SHA | Notes |
+| Component             | Version / SHA                | Notes |
 |---|---|---|
-| `msk_demodulator` base | `tx_sample_scale` @ `<SHA TBD>` | fork point for complex-baseband-rx |
-| local delta on base | SAMPLE_GATED_NCO edits | carry onto the branch |
-| Vivado / PetaLinux | 2022.2 | unchanged |
-| channelizer | backward-commutator fix ("Cast TRUE SEEING") | bin 0 correct; non-zero bins need twiddle (separate) |
-| stimulus gen | `opv_chan_stim_gen.py` @ fc=0 (centered) | regenerate for complex path |
+| msk_demodulator base  | tx_sample_scale @ <SHA>      | fork point; FILL from git log |
+| complex-demod delta   | Cast POLYMORPH @ 3da5f58     | 4-mult mixer + Q port |
+| rx_top soft-path fix  | Cast TRUE SEEING             | soft negation + 38000/24000 thresholds |
+| channelizer           | Cast REVERSE GRAVITY         | commutator reversed, bin 0 = DC; map mirrored (k<->N-k); non-DC bins still need per-bin twiddle for cataloging (separate, open) |
+| channelizer TB        | Cast ALTER SELF              | either/or: RUN_CHANNELIZER_TESTS true=regression, false=OPV decode |
+| Vivado / PetaLinux    | 2022.2                       | unchanged |
+| stimulus gen          | opv_chan_stim_gen.py --fc 0  | DC-centered; regen cmd below |
+
+
+Regenerate the DC-centered channelizer-TB stimulus (run from .../Mode-Dynamic-Transponder/docs):
+
+  python3 opv_chan_stim_gen.py --fc 0 --frames 5 \
+      --out ../haifuraiya/sim/opv_chan_stim_dc.txt
+
+  --fc 0   = DC-centered (the complex path). The generator's DEFAULT is fc=110130,
+             the OLD I-only/IF config, and its --help prose still narrates that old
+             default as if current. Stale docstring; harmless to the run, worth a
+             cleanup commit. --fc 0 is what the complex demod wants.
+  --frames 5 -> 5 x 40 ms = 200 ms @ 20 Msps = 4,000,000 samples.
 
 ---
 
