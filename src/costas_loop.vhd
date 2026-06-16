@@ -86,7 +86,14 @@ ENTITY costas_loop IS
 		--                  (Pluto native 61.44 MHz, LibreSDR 245/4 = 61.44 MHz domain).
 		-- TRUE: NCO advances once per valid sample -- for clk /= sample rate, where samples
 		--       arrive on rx_svalid (e.g. Haifuraiya: 100 MHz fabric, ~625 ksps channel).
-		SAMPLE_GATED_NCO	: BOOLEAN := False
+		SAMPLE_GATED_NCO    : BOOLEAN := False;
+                -- FALSE (default): the loop's own PI integrator drives its NCO. Bit-exact
+                --   to every existing use. TRUE: the NCO is driven by an EXTERNAL common
+                --   adjust (ext_adjust/ext_adjust_valid) so two loops share one carrier
+                --   integrator and cannot drift apart. The internal PI is frozen (it still
+                --   feeds loop_error, but no longer steers the NCO or winds up).
+                EXTERNAL_NCO_ADJUST : BOOLEAN := False
+
 	);
 	PORT (
 		clk 			: IN  std_logic;
@@ -107,6 +114,8 @@ ENTITY costas_loop IS
 		lpf_accum 		: OUT std_logic_vector(ACC_W -1 DOWNTO 0);
 		nco_adjust		: OUT std_logic_vector(31 DOWNTO 0);
 		loop_error		: OUT std_logic_vector(31 DOWNTO 0);
+                ext_adjust              : IN  std_logic_vector(NCO_W -1 DOWNTO 0) := (OTHERS => '0');
+                ext_adjust_valid        : IN  std_logic := '0';
 
 		discard_rxnco 	: IN  std_logic_vector(7 DOWNTO 0);
 		freq_word 		: IN  std_logic_vector(NCO_W -1 DOWNTO 0);
@@ -192,7 +201,10 @@ ARCHITECTURE rtl OF costas_loop IS
 	SIGNAL tclk_dly		: std_logic_vector(0 TO 3);
 
 	SIGNAL lpf_adj_valid 	: std_logic;
-	SIGNAL lpf_adjust 		: std_logic_vector(NCO_W -1 DOWNTO 0);
+	SIGNAL lpf_adjust 	: std_logic_vector(NCO_W -1 DOWNTO 0);
+        SIGNAL nco_adj          : std_logic_vector(NCO_W -1 DOWNTO 0);
+        SIGNAL nco_adj_valid    : std_logic;
+        SIGNAL int_pi_freeze    : std_logic;
 
 BEGIN
 
@@ -468,7 +480,6 @@ BEGIN
 		lpf_i_gain 		=> lpf_i_gain,
 		lpf_i_shift		=> lpf_i_shift,
 		lpf_p_shift		=> lpf_p_shift,
-		lpf_freeze 	 	=> lpf_freeze,
 		lpf_zero 		=> lpf_zero,
 
 		lpf_err_valid 	=> error_valid,
@@ -476,6 +487,7 @@ BEGIN
 
 		lpf_adj_valid   => lpf_adj_valid,
 		lpf_adjust		=> lpf_adjust,
+                lpf_freeze       => int_pi_freeze,   -- was: lpf_freeze
 
 		lpf_accum 		=> lpf_accum
 	);
@@ -511,6 +523,17 @@ BEGIN
 	-- required when clk is the fabric clock rather than the sample rate.
 	nco_en <= (enable and rx_svalid) when SAMPLE_GATED_NCO else enable;
 
+
+        -- NCO is driven by the shared external adjust when coupled, else by this
+        -- loop's own PI (original behavior). Default generic = original behavior.
+        nco_adj       <= ext_adjust       WHEN EXTERNAL_NCO_ADJUST ELSE lpf_adjust;
+        nco_adj_valid <= ext_adjust_valid WHEN EXTERNAL_NCO_ADJUST ELSE lpf_adj_valid;
+
+        -- Freeze the internal integrator when coupled so it can't wind up to the rails
+        -- (its output is unused; loop_error is computed independently of the PI).
+        int_pi_freeze <= '1' WHEN EXTERNAL_NCO_ADJUST ELSE lpf_freeze;
+
+
 	U_carrier_nco : ENTITY work.nco(rtl)
 	GENERIC MAP (
 		NCO_W 			=> NCO_W,
@@ -525,9 +548,9 @@ BEGIN
 		discard_nco 	=> discard_rxnco,
 		freq_word 		=> freq_word,
 
-		freq_adj_zero   => '0',
-		freq_adj_valid  => lpf_adj_valid,
-		freq_adjust 	=> lpf_adjust,
+                freq_adj_zero   => '0',
+                freq_adj_valid  => nco_adj_valid,    -- was: lpf_adj_valid
+                freq_adjust     => nco_adj,          -- was: lpf_adjust
 	
 		phase    		=> car_phase,
 		rollover_pi2 	=> OPEN,

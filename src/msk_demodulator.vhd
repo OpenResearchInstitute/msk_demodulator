@@ -202,6 +202,13 @@ ARCHITECTURE rtl OF msk_demodulator IS
 	SIGNAL lbk_f1_signed 	: signed(2 DOWNTO 0);
 	SIGNAL lbk_f2_signed 	: signed(2 DOWNTO 0);
 
+        SIGNAL f1_error_int, f2_error_int : std_logic_vector(31 DOWNTO 0);
+        SIGNAL ev_f1_d, ev_f2_d  : std_logic;                          -- error_valid delayed 1 clk
+        SIGNAL common_err        : std_logic_vector(31 DOWNTO 0);
+        SIGNAL common_err_valid  : std_logic;
+        SIGNAL common_adjust     : std_logic_vector(NCO_W -1 DOWNTO 0);
+        SIGNAL common_adj_valid  : std_logic;
+
 BEGIN
 
 	rx_init 		<= init OR NOT rx_enable;
@@ -354,6 +361,51 @@ BEGIN
 		END IF;
 	END PROCESS clock_rec_process;
 
+err_align : PROCESS (clk)
+    BEGIN
+        IF rising_edge(clk) THEN
+            ev_f1_d <= error_valid_f1;
+            ev_f2_d <= error_valid_f2;
+            IF rx_init = '1' THEN
+                ev_f1_d <= '0';
+                ev_f2_d <= '0';
+            END IF;
+        END IF;
+    END PROCESS;
+
+    -- whichever loop produced a valid error this symbol drives the shared loop
+    f1_error   <= f1_error_int;
+    f2_error   <= f2_error_int;
+    common_err <= f1_error_int WHEN ev_f1_d = '1' ELSE f2_error_int;
+    common_err_valid <= ev_f1_d OR ev_f2_d;
+
+
+
+u_carrier_filter : ENTITY work.pi_controller(rtl)
+    GENERIC MAP (
+        NCO_W      => NCO_W,
+        ERR_W      => 32,     -- warning hardcode alert!
+        GAIN_W     => GAIN_W,
+        ASSERT_ENA => False
+    )
+    PORT MAP (
+        clk            => clk,
+        init           => rx_init,
+        enable         => rx_enable,
+        lpf_p_gain     => lpf_p_gain,
+        lpf_i_gain     => lpf_i_gain,
+        lpf_i_shift    => lpf_i_shift,
+        lpf_p_shift    => lpf_p_shift,
+        lpf_freeze     => lpf_freeze,
+        lpf_zero       => lpf_zero,
+        lpf_err_valid  => common_err_valid,
+        lpf_err        => common_err,
+        lpf_adj_valid  => common_adj_valid,
+        lpf_adjust     => common_adjust,
+        lpf_accum      => OPEN          -- (optionally route to a debug port)
+    );
+
+
 
 ------------------------------------------------------------------------------------------------------
 --  __  __   __ ___       __        __   __   __     __     
@@ -372,6 +424,7 @@ BEGIN
 			SAMPLE_W 		=> SAMPLE_W,
 			DATA_W 			=> DATA_W,
 			PHASE_INIT 		=> NCO_2PI,
+                        EXTERNAL_NCO_ADJUST     => True,
 			SAMPLE_GATED_NCO	=> SAMPLE_GATED_NCO
 		)
 		PORT MAP (
@@ -392,7 +445,7 @@ BEGIN
 
 			lpf_accum 		=> lpf_accum_f1,
 			nco_adjust 		=> f1_nco_adjust,
-			loop_error		=> f1_error,
+                        loop_error		=> f1_error_int,
 
 			discard_rxnco 	=> discard_rxnco,
 			freq_word 		=> rx_freq_word_f1,
@@ -414,6 +467,9 @@ BEGIN
 			cst_lock				=> cst_lock_f1,
 			cst_lock_time 			=> cst_lock_time_f1,
 			cst_unlock 				=> cst_unlock_f1,
+
+                        ext_adjust       => common_adjust,
+                        ext_adjust_valid => common_adj_valid,
 
 			-- Port mapping added for ILA in order to calibrate symbol lock threshold
 			dbg_acc_i => dbg_acc_i_f1,
@@ -440,6 +496,7 @@ BEGIN
 			SAMPLE_W 		=> SAMPLE_W,
 			DATA_W 			=> DATA_W,
 			PHASE_INIT 		=> NCO_2PI,
+                        EXTERNAL_NCO_ADJUST     => True,
 			SAMPLE_GATED_NCO	=> SAMPLE_GATED_NCO
 		)
 		PORT MAP (
@@ -460,7 +517,7 @@ BEGIN
 
 			lpf_accum 		=> lpf_accum_f2,
 			nco_adjust 		=> f2_nco_adjust,
-			loop_error		=> f2_error,
+                        loop_error		=> f2_error_int,
 
 			discard_rxnco 	=> discard_rxnco,
 			freq_word 		=> rx_freq_word_f2,
@@ -482,6 +539,9 @@ BEGIN
 			cst_lock				=> cst_lock_f2,
 			cst_lock_time 			=> cst_lock_time_f2,
 			cst_unlock 				=> cst_unlock_f2,
+
+                        ext_adjust       => common_adjust,
+                        ext_adjust_valid => common_adj_valid,
 
 			-- Port mapping added for ILA in order to calibrate symbol lock threshold
 			-- connect to open because we are planning on using F1 only for threshold calibration
