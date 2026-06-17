@@ -208,6 +208,7 @@ ARCHITECTURE rtl OF msk_demodulator IS
         SIGNAL common_err_valid  : std_logic;
         SIGNAL common_adjust     : std_logic_vector(NCO_W -1 DOWNTO 0);
         SIGNAL common_adj_valid  : std_logic;
+        CONSTANT GAIN_ZERO       : std_logic_vector(GAIN_W - 1 DOWNTO 0) := (OTHERS => '0');
 
 BEGIN
 
@@ -392,7 +393,7 @@ u_carrier_filter : ENTITY work.pi_controller(rtl)
         clk            => clk,
         init           => rx_init,
         enable         => rx_enable,
-        lpf_p_gain     => lpf_p_gain,
+        --lpf_p_gain     => lpf_p_gain, -- replaced below
         lpf_i_gain     => lpf_i_gain,
         lpf_i_shift    => lpf_i_shift,
         lpf_p_shift    => lpf_p_shift,
@@ -402,7 +403,8 @@ u_carrier_filter : ENTITY work.pi_controller(rtl)
         lpf_err        => common_err,
         lpf_adj_valid  => common_adj_valid,
         lpf_adjust     => common_adjust,
-        lpf_accum      => OPEN          -- (optionally route to a debug port)
+        lpf_accum      => OPEN,          -- (optionally route to a debug port)
+        lpf_p_gain     => GAIN_ZERO      -- coupled: common loop is integral-only (shared carrier frequency)
     );
 
 
@@ -424,7 +426,7 @@ u_carrier_filter : ENTITY work.pi_controller(rtl)
 			SAMPLE_W 		=> SAMPLE_W,
 			DATA_W 			=> DATA_W,
 			PHASE_INIT 		=> NCO_2PI,
-                        EXTERNAL_NCO_ADJUST     => True,
+                        EXTERNAL_NCO_ADJUST     => False,
 			SAMPLE_GATED_NCO	=> SAMPLE_GATED_NCO
 		)
 		PORT MAP (
@@ -496,7 +498,7 @@ u_carrier_filter : ENTITY work.pi_controller(rtl)
 			SAMPLE_W 		=> SAMPLE_W,
 			DATA_W 			=> DATA_W,
 			PHASE_INIT 		=> NCO_2PI,
-                        EXTERNAL_NCO_ADJUST     => True,
+                        EXTERNAL_NCO_ADJUST     => False,
 			SAMPLE_GATED_NCO	=> SAMPLE_GATED_NCO
 		)
 		PORT MAP (

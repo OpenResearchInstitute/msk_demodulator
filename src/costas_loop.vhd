@@ -526,12 +526,19 @@ BEGIN
 
         -- NCO is driven by the shared external adjust when coupled, else by this
         -- loop's own PI (original behavior). Default generic = original behavior.
-        nco_adj       <= ext_adjust       WHEN EXTERNAL_NCO_ADJUST ELSE lpf_adjust;
+        --nco_adj       <= ext_adjust       WHEN EXTERNAL_NCO_ADJUST ELSE lpf_adjust; -- replaced with below
+        nco_adj       <= std_logic_vector(signed(ext_adjust) + signed(lpf_adjust))
+                                     WHEN EXTERNAL_NCO_ADJUST ELSE lpf_adjust;
+
+
+
         nco_adj_valid <= ext_adjust_valid WHEN EXTERNAL_NCO_ADJUST ELSE lpf_adj_valid;
 
         -- Freeze the internal integrator when coupled so it can't wind up to the rails
         -- (its output is unused; loop_error is computed independently of the PI).
         int_pi_freeze <= '1' WHEN EXTERNAL_NCO_ADJUST ELSE lpf_freeze;
+
+
 
 
 	U_carrier_nco : ENTITY work.nco(rtl)
