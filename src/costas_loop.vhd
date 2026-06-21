@@ -295,10 +295,10 @@ BEGIN
 		IF clk'EVENT AND clk = '1' THEN
 
 			IF enable = '1' THEN
-
-				rx_sin_filt_acc <= rx_sin_filt_sat;
-				rx_cos_filt_acc <= rx_cos_filt_sat;
-
+			    IF (rx_svalid = '1') OR NOT SAMPLE_GATED_NCO THEN
+			        rx_sin_filt_acc <= rx_sin_filt_sat;
+			        rx_cos_filt_acc <= rx_cos_filt_sat;
+			    END IF;
 			END IF;
 
 			IF init = '1' THEN
