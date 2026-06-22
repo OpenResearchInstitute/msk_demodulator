@@ -526,9 +526,11 @@ BEGIN
 
         -- NCO is driven by the shared external adjust when coupled, else by this
         -- loop's own PI (original behavior). Default generic = original behavior.
-        --nco_adj       <= ext_adjust       WHEN EXTERNAL_NCO_ADJUST ELSE lpf_adjust; -- replaced with below
-        nco_adj       <= std_logic_vector(signed(ext_adjust) + signed(lpf_adjust))
-                                     WHEN EXTERNAL_NCO_ADJUST ELSE lpf_adjust;
+
+        nco_adj       <= ext_adjust WHEN EXTERNAL_NCO_ADJUST ELSE lpf_adjust;
+
+        --nco_adj       <= std_logic_vector(signed(ext_adjust) + signed(lpf_adjust))
+        --                             WHEN EXTERNAL_NCO_ADJUST ELSE lpf_adjust;
 
 
 
