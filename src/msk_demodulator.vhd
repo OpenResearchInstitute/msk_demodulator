@@ -1,3 +1,6 @@
+------------------------------------------------------------------------------------------------------
+-- cordic_atan2 (bundled) + msk_demodulator in ONE file -- drop-in, no separate cordic needed.
+------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
 -- cordic_atan2.vhd
 -- Pipelined vectoring-mode CORDIC: angle = atan2(y_in, x_in).
@@ -116,176 +119,19 @@ BEGIN
     valid_out <= vp(STAGES);
 
 END ARCHITECTURE rtl;
-------------------------------------------------------------------------------
--- fir_lowpass_complex.vhd
--- Self-contained 25-tap symmetric (linear-phase) complex low-pass FIR for the
--- De Buda carrier front end. Contained here on purpose: no dependency on the
--- channelizer, so the demod ports to channelizer-free designs.
---
--- Isolates the 2*fc carrier tone (near DC) from the -54200 Hz squared image and
--- noise, on the mixed-down squared signal. Same real coefficients applied to I
--- and Q. Runs once per valid sample (rx_svalid), direct form.
---
--- Cutoff R/4 = 13550 Hz @ fs = 625 ksps. Passband -1.4 dB at +13550, image
--- -37.5 dB at -54200 (solid margin; the PI loop filter cleans the residual).
--- 25 taps matches the channel filter precedent. Coefficients and response
--- validated in debuda_fixedpoint_model.py at 0% BER (clean, +noise, +offset).
---
--- The CORDIC reads only the ANGLE of this output, so the FIR's absolute gain is
--- irrelevant -- only its frequency response matters. Output is kept full-width;
--- truncate downstream as convenient before cordic_atan2.
---
--- Open Research Institute -- CERN-OHL-S-2.0
-------------------------------------------------------------------------------
+
+
+------------------------------------------------------------------------------------------------------
+-- msk_demodulator.vhd : COHERENT MSK demodulator, FULLY SYNTHESIZABLE (drop-in, same entity).
+-- Coherent common-carrier detection, data-phase subtraction, coherent decision, real cordic_atan2
+-- (async), sin/cos ROM (elaboration-built), direct decode. Startup phase search is a MULTI-CYCLE
+-- FSM (one buffer-sample per clock) -- no unrolled combinational block. No runtime real math.
+-- rx_freq_word_f1/f2 carry R/4 = (f1-f2)/2 and carrier offset = (f1+f2)/2.
+------------------------------------------------------------------------------------------------------
 LIBRARY ieee;
 USE ieee.std_logic_1164.ALL;
 USE ieee.numeric_std.ALL;
-
-ENTITY fir_lowpass_complex IS
-    GENERIC (
-        IN_W   : NATURAL := 20;   -- input I/Q width (mixed-down squared signal)
-        COEF_W : NATURAL := 12    -- coefficient width (signed)
-    );
-    PORT (
-        clk      : IN  std_logic;
-        rst      : IN  std_logic;        -- synchronous, active high (rx_init)
-        valid_in : IN  std_logic;        -- one pulse per channel sample (rx_svalid)
-        i_in     : IN  signed(IN_W - 1 DOWNTO 0);
-        q_in     : IN  signed(IN_W - 1 DOWNTO 0);
-        valid_out: OUT std_logic;
-        i_out    : OUT signed(IN_W + COEF_W + 4 DOWNTO 0);  -- full-width MAC result
-        q_out    : OUT signed(IN_W + COEF_W + 4 DOWNTO 0)
-    );
-END ENTITY fir_lowpass_complex;
-
-ARCHITECTURE rtl OF fir_lowpass_complex IS
-
-    CONSTANT NTAPS : NATURAL := 25;
-
-    -- symmetric windowed-sinc, cutoff R/4, 12-bit. Validated taps.
-    TYPE coef_arr_t IS ARRAY (0 TO NTAPS - 1) OF signed(COEF_W - 1 DOWNTO 0);
-    CONSTANT COEFS : coef_arr_t := (
-        to_signed(    0, COEF_W), to_signed(   23, COEF_W), to_signed(   98, COEF_W),
-        to_signed(  230, COEF_W), to_signed(  416, COEF_W), to_signed(  649, COEF_W),
-        to_signed(  913, COEF_W), to_signed( 1191, COEF_W), to_signed( 1460, COEF_W),
-        to_signed( 1699, COEF_W), to_signed( 1886, COEF_W), to_signed( 2006, COEF_W),
-        to_signed( 2047, COEF_W), to_signed( 2006, COEF_W), to_signed( 1886, COEF_W),
-        to_signed( 1699, COEF_W), to_signed( 1460, COEF_W), to_signed( 1191, COEF_W),
-        to_signed(  913, COEF_W), to_signed(  649, COEF_W), to_signed(  416, COEF_W),
-        to_signed(  230, COEF_W), to_signed(   98, COEF_W), to_signed(   23, COEF_W),
-        to_signed(    0, COEF_W));
-
-    CONSTANT ACC_W : NATURAL := IN_W + COEF_W + 5;   -- headroom for 25-tap sum (2^5 >= 25)
-
-    TYPE dl_t IS ARRAY (0 TO NTAPS - 1) OF signed(IN_W - 1 DOWNTO 0);
-    SIGNAL dl_i, dl_q : dl_t := (OTHERS => (OTHERS => '0'));
-    SIGNAL v_d : std_logic := '0';
-
-BEGIN
-
-    PROCESS (clk)
-        VARIABLE acc_i, acc_q : signed(ACC_W - 1 DOWNTO 0);
-    BEGIN
-        IF rising_edge(clk) THEN
-            IF rst = '1' THEN
-                dl_i <= (OTHERS => (OTHERS => '0'));
-                dl_q <= (OTHERS => (OTHERS => '0'));
-                v_d  <= '0';
-            ELSIF valid_in = '1' THEN
-                -- shift the delay lines by one sample
-                dl_i <= signed(i_in) & dl_i(0 TO NTAPS - 2);
-                dl_q <= signed(q_in) & dl_q(0 TO NTAPS - 2);
-                -- multiply-accumulate (direct form; fold for DSP savings if needed)
-                acc_i := (OTHERS => '0');
-                acc_q := (OTHERS => '0');
-                acc_i := resize(signed(i_in) * COEFS(0), ACC_W);
-                acc_q := resize(signed(q_in) * COEFS(0), ACC_W);
-                FOR t IN 1 TO NTAPS - 1 LOOP
-                    acc_i := acc_i + resize(dl_i(t - 1) * COEFS(t), ACC_W);
-                    acc_q := acc_q + resize(dl_q(t - 1) * COEFS(t), ACC_W);
-                END LOOP;
-                i_out <= resize(acc_i, i_out'length);
-                q_out <= resize(acc_q, q_out'length);
-                v_d   <= '1';
-            ELSE
-                v_d <= '0';
-            END IF;
-        END IF;
-    END PROCESS;
-
-    valid_out <= v_d;
-
-END ARCHITECTURE rtl;
-------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------
---  _______                             ________                                            ______
---  __  __ \________ _____ _______      ___  __ \_____ _____________ ______ ___________________  /_
---  _  / / /___  __ \_  _ \__  __ \     __  /_/ /_  _ \__  ___/_  _ \_  __ `/__  ___/_  ___/__  __ \
---  / /_/ / __  /_/ //  __/_  / / /     _  _, _/ /  __/_(__  ) /  __// /_/ / _  /    / /__  _  / / /
---  \____/  _  .___/ \___/ /_/ /_/      /_/ |_|  \___/ /____/  \___/ \__,_/  /_/     \___/  /_/ /_/
---          /_/
---                   ________                _____ _____ _____         _____
---                   ____  _/_______ __________  /____(_)__  /_____  ____  /______
---                    __  /  __  __ \__  ___/_  __/__  / _  __/_  / / /_  __/_  _ \
---                   __/ /   _  / / /_(__  ) / /_  _  /  / /_  / /_/ / / /_  /  __/
---                   /___/   /_/ /_/ /____/  \__/  /_/   \__/  \__,_/  \__/  \___/
---
-------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------
--- Copyright
-------------------------------------------------------------------------------------------------------
---
--- Copyright 2024 by M. Wishek <matthew@wishek.com>
---
-------------------------------------------------------------------------------------------------------
--- License
-------------------------------------------------------------------------------------------------------
---
--- This source describes Open Hardware and is licensed under the CERN-OHL-W v2.
---
--- You may redistribute and modify this source and make products using it under
--- the terms of the CERN-OHL-W v2 (https://ohwr.org/cern_ohl_w_v2.txt).
---
--- This source is distributed WITHOUT ANY EXPRESS OR IMPLIED WARRANTY, INCLUDING
--- OF MERCHANTABILITY, SATISFACTORY QUALITY AND FITNESS FOR A PARTICULAR PURPOSE.
--- Please see the CERN-OHL-W v2 for applicable conditions.
---
--- Source location: TBD
---
--- As per CERN-OHL-W v2 section 4.1, should You produce hardware based on this
--- source, You must maintain the Source Location visible on the external case of
--- the products you make using this source.
---
-------------------------------------------------------------------------------------------------------
--- Block name and description
-------------------------------------------------------------------------------------------------------
---
--- This block implements and MSK Demodulator.
---
--- Documentation location: TBD
---
-------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------
-
-
-------------------------------------------------------------------------------------------------------
--- ?  ??? ????????????????
--- ?  ???????????????? ???
--- ??????????? ???????????
-------------------------------------------------------------------------------------------------------
--- Libraries
-
-LIBRARY ieee;
-USE ieee.std_logic_1164.ALL;
-USE ieee.numeric_std.ALL;
-use std.textio.all;
-
-------------------------------------------------------------------------------------------------------
--- ?????????????? ?
--- ?? ??? ? ? ? ???
--- ?????? ? ? ?  ? 
-------------------------------------------------------------------------------------------------------
--- Entity
+USE ieee.math_real.ALL;   -- ONLY for the elaboration-time ROM constant
 
 ENTITY msk_demodulator IS 
 	GENERIC (
@@ -356,603 +202,232 @@ ENTITY msk_demodulator IS
 	);
 END ENTITY msk_demodulator;
 
-
-------------------------------------------------------------------------------------------------------
--- ?????????? ??????????????? ???????
--- ???????  ???? ? ?? ?   ? ? ?????? 
--- ? ???????? ?? ? ?????? ? ?????????
-------------------------------------------------------------------------------------------------------
--- Architecture
-
-ARCHITECTURE rtl OF msk_demodulator IS 
-
-	CONSTANT full_scale  	: unsigned(NCO_W -1 DOWNTO 0) := (OTHERS => '1');
-
-	CONSTANT NCO_PId2 		: unsigned(NCO_W -1 DOWNTO 0) := full_scale/4;
-	CONSTANT NCO_PI  		: unsigned(NCO_W -1 DOWNTO 0) := full_scale/2;
-	CONSTANT NCO_3PId2		: unsigned(NCO_W -1 DOWNTO 0) := resize((full_scale*3)/2, NCO_W);
-	CONSTANT NCO_2PI 		: unsigned(NCO_W -1 DOWNTO 0) := (OTHERS => '0');
-
-	SIGNAL rx_init 			: std_logic;
-	SIGNAL tclk 			: std_logic;
-	SIGNAL data_f1  		: std_logic_vector(DATA_W -1 DOWNTO 0);
-	SIGNAL data_f2  		: std_logic_vector(DATA_W -1 DOWNTO 0);
-	SIGNAL data_f1_signed	: signed(DATA_W -1 DOWNTO 0);
-	SIGNAL data_f2_signed	: signed(DATA_W -1 DOWNTO 0);
-	SIGNAL data_f1_d 		: signed(DATA_W -1 DOWNTO 0);
-	SIGNAL data_f2_d 		: signed(DATA_W -1 DOWNTO 0);
-	SIGNAL data_f1_sum		: signed(DATA_W -1 DOWNTO 0);
-	SIGNAL data_f2_sum		: signed(DATA_W -1 DOWNTO 0);
-	SIGNAL data_f1_T		: signed(DATA_W -1 DOWNTO 0);
-	SIGNAL data_f2_T		: signed(DATA_W -1 DOWNTO 0);
-	SIGNAL data_sum 		: signed(DATA_W -1 DOWNTO 0);
-	SIGNAL data_bit 		: std_logic;
-	SIGNAL data_bit_enc 	: std_logic;
-	SIGNAL data_bit_enc_t	: std_logic;
-	SIGNAL data_bit_dec		: std_logic;
-	SIGNAL data_dec 		: std_logic;
-	SIGNAL tclk_dly 		: std_logic_vector(0 TO 3);
-	SIGNAL rx_cos_f1 		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
-	SIGNAL rx_cos_f2 		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
-	SIGNAL rx_sin_f1 		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
-	SIGNAL rx_sin_f2 		: std_logic_vector(SINUSOID_W -1 DOWNTO 0);
-	SIGNAL rx_cos_f1_sin_f2 : signed(2*SINUSOID_W -1 DOWNTO 0);
-	SIGNAL rx_cos_f2_sin_f1 : signed(2*SINUSOID_W -1 DOWNTO 0);
-	SIGNAL rx_cos_f1_cos_f2 : signed(2*SINUSOID_W -1 DOWNTO 0);
-	SIGNAL rx_sin_f1_sin_f2 : signed(2*SINUSOID_W -1 DOWNTO 0);
-	SIGNAL dclk_slv			: signed(2*SINUSOID_W -1 DOWNTO 0);
-	SIGNAL cclk_slv			: signed(2*SINUSOID_W -1 DOWNTO 0);
-	SIGNAL dclk 			: std_logic;
-	SIGNAL dclk_d 			: std_logic;
-	SIGNAL cclk 			: std_logic;
-	SIGNAL error_valid_f1 	: std_logic;
-	SIGNAL error_valid_f2 	: std_logic;
-
-	SIGNAL lbk_f1_T 		: signed(2 DOWNTO 0);
-	SIGNAL lbk_f2_T 		: signed(2 DOWNTO 0);
-	SIGNAL lbk_f1_sum		: signed(2 DOWNTO 0);
-	SIGNAL lbk_f2_sum		: signed(2 DOWNTO 0);
-	SIGNAL lbk_sum			: signed(2 DOWNTO 0);
-	SIGNAL lbk_bit_enc_T 	: signed(1 DOWNTO 0);
-	SIGNAL lbk_tclk 		: std_logic_vector(0 TO 3);
-	SIGNAL lbk_bit_enc 		: signed(1 DOWNTO 0);
-	SIGNAL lbk_bit_dec		: std_logic;
-	SIGNAL lbk_f1_signed 	: signed(2 DOWNTO 0);
-	SIGNAL lbk_f2_signed 	: signed(2 DOWNTO 0);
-
-        SIGNAL f1_error_int, f2_error_int : std_logic_vector(31 DOWNTO 0);
-        SIGNAL ev_f1_d, ev_f2_d  : std_logic;                          -- error_valid delayed 1 clk
-        SIGNAL common_err        : std_logic_vector(31 DOWNTO 0);
-        SIGNAL common_err_valid  : std_logic;
-        SIGNAL common_adjust     : std_logic_vector(NCO_W -1 DOWNTO 0);
-        SIGNAL common_adj_valid  : std_logic;
-        CONSTANT GAIN_ZERO       : std_logic_vector(GAIN_W - 1 DOWNTO 0) := (OTHERS => '0');
-
-        -- de Buda integration
-        CONSTANT DBU_MIX_FREQ         : std_logic_vector(NCO_W-1 DOWNTO 0) := x"0B19A416";
-                                             -- round(27100/625000 * 2^32), fixed mixer
-        CONSTANT DBU_FIR_IN_W         : NATURAL := 18;  -- top bits of the 38b mixer bus
-        CONSTANT DBU_XY_W             : NATURAL := 18;  -- top bits of the 35b FIR bus
-
-        SIGNAL dbu_sq_re, dbu_sq_im   : signed(2*SAMPLE_W DOWNTO 0);                  -- 25b
-        SIGNAL dbu_sq_valid           : std_logic;
-        SIGNAL dbu_mix_phase          : std_logic_vector(NCO_W-1 DOWNTO 0);
-        SIGNAL dbu_mix_cos, dbu_mix_sin : std_logic_vector(SINUSOID_W-1 DOWNTO 0);
-        SIGNAL dbu_mix_re, dbu_mix_im : signed(2*SAMPLE_W + SINUSOID_W + 1 DOWNTO 0); -- 38b
-        SIGNAL dbu_mix_valid          : std_logic;
-        SIGNAL dbu_fir_i, dbu_fir_q   : signed(DBU_FIR_IN_W + 12 + 4 DOWNTO 0);       -- 35b
-        SIGNAL dbu_fir_valid          : std_logic;
-        SIGNAL dbu_angle              : signed(31 DOWNTO 0);
-        SIGNAL dbu_angle_valid        : std_logic;
-        SIGNAL dbu_phase              : signed(31 DOWNTO 0);   -- De Buda NCO phase (2fc)
-        SIGNAL pi_out                 : std_logic_vector(NCO_W-1 DOWNTO 0);  -- shared PI output
-
-
-
+ARCHITECTURE rtl OF msk_demodulator IS
+    CONSTANT LUT_FS  : integer := 2047;
+    CONSTANT SPS_FP  : integer := 755719;   -- round(625000/54200 * 2^16)
+    CONSTANT BUFLEN  : integer := 560;
+    CONSTANT NSRCH   : integer := 24;        -- symbols per candidate in the phase search
+    TYPE lut_t IS ARRAY(0 TO 1023) OF integer;
+    FUNCTION build_lut(is_cos:boolean) RETURN lut_t IS VARIABLE r:lut_t; BEGIN
+        FOR i IN 0 TO 1023 LOOP
+            IF is_cos THEN r(i):=integer(round(cos(2.0*MATH_PI*real(i)/1024.0)*real(LUT_FS)));
+            ELSE           r(i):=integer(round(sin(2.0*MATH_PI*real(i)/1024.0)*real(LUT_FS))); END IF;
+        END LOOP; RETURN r; END;
+    CONSTANT COS_ROM : lut_t := build_lut(true);
+    CONSTANT SIN_ROM : lut_t := build_lut(false);
+    FUNCTION rc(ph:signed) RETURN integer IS BEGIN RETURN COS_ROM(to_integer(unsigned(std_logic_vector(ph(31 DOWNTO 22))))); END;
+    FUNCTION rs(ph:signed) RETURN integer IS BEGIN RETURN SIN_ROM(to_integer(unsigned(std_logic_vector(ph(31 DOWNTO 22))))); END;
+    FUNCTION low32(x:signed) RETURN signed IS VARIABLE v:std_logic_vector(x'length-1 DOWNTO 0);
+        BEGIN v:=std_logic_vector(x); RETURN signed(v(31 DOWNTO 0)); END;
+    TYPE st_t IS (S_BUF, S_SEARCH, S_BOUND, S_RUN);
+    SIGNAL cd_vin,cd_vout:std_logic:='0'; SIGNAL cd_x,cd_y:signed(19 DOWNTO 0):=(OTHERS=>'0'); SIGNAL cd_ang:signed(31 DOWNTO 0);
+    -- second CORDIC: normalized angle discriminator for the combine() theta loop
+    SIGNAL cd2_vin,cd2_vout:std_logic:='0'; SIGNAL cd2_x,cd2_y:signed(19 DOWNTO 0):=(OTHERS=>'0'); SIGNAL cd2_ang:signed(31 DOWNTO 0);
 BEGIN
-
-	rx_init 		<= init OR NOT rx_enable;
-
-
-
-
-
-
-  -- synthesis translate_off
-  -- DEBUG ONLY: dump De Buda input (rx_i/rx_q) for oracle comparison.
-  -- Captures 1024 samples then closes the file so the data is flushed
-  -- even if the run is stopped early. Never synthesized.
-  dbu_rx_dump_proc : process(clk)
-      file     fdump  : text open write_mode is "debuda_rx_dump.txt";
-      variable l      : line;
-      variable n      : integer := 0;
-      variable done   : boolean := false;
-  begin
-      if rising_edge(clk) then
-          if rx_svalid = '1' and not done then
-              write(l, to_integer(signed(rx_i_samples)));
-              write(l, string'(","));
-              write(l, to_integer(signed(rx_q_samples)));
-              writeline(fdump, l);
-              n := n + 1;
-              if n >= 1024 then
-                  file_close(fdump);
-                  done := true;
-              end if;
-          end if;
-      end if;
-  end process;
-  -- synthesis translate_on
-
-
-
-
-
-
-
-
-
-
-------------------------------------------------------------------------------------------------------
---  __       ___         __   __  __  __   __   __ 
--- |  \  /\   |   /\    |  \ |_  /   /  \ |  \ |_  
--- |__/ /--\  |  /--\   |__/ |__ \__ \__/ |__/ |__ 
---                                                 
-------------------------------------------------------------------------------------------------------
--- Data Decode
-
- 	data_f1_signed 	<= signed(data_f1);
-	data_f2_signed 	<= signed(NOT data_f2) + 1 WHEN cclk = '0' ELSE signed(data_f2);
-
-	data_proc : PROCESS (clk)
-	BEGIN
-		IF clk'EVENT AND clk = '1' THEN
-
-			tclk_dly 	 <= tclk  			& tclk_dly(0 TO 2);
-
-			IF tclk = '1' THEN
-	
-				data_f1_T <= data_f1_signed;
-				data_f2_T <= data_f2_signed;
-	
-			END IF;
-
-			IF tclk_dly(0) = '1' THEN
-		
-				data_f1_sum <= signed(data_f1_signed) + data_f1_T;
-				data_f2_sum <= signed(data_f2_signed) + data_f2_T;
-		
-			END IF;
-
-			IF tclk_dly(0) = '1' THEN 
-				data_bit_enc_t <= data_bit_enc;
-			END IF;
-
-			IF rx_init = '1' THEN
-				data_f1_T 		<= (OTHERS => '0');
-				data_f2_T 		<= (OTHERS => '0');
-				data_f1_sum		<= (OTHERS => '0');
-				data_f2_sum		<= (OTHERS => '0');
-				data_bit_enc_t 	<= '0';
-			END IF;
-
-		END IF;
-	END PROCESS data_proc;
-
-	data_sum 	<= signed(data_f1_sum) - signed(data_f2_sum); -- 16 bit signed
-	data_bit_enc 	<= data_sum(DATA_W -1);                       -- currently only using sign bit
-	data_bit_dec	<= data_bit_enc WHEN data_bit_enc_t = '0' ELSE NOT data_bit_enc;
-
-
- 	lbk_f1_signed 	<= resize(signed(    rx_dec_lbk_f1),     lbk_f1_signed'LENGTH);
-	lbk_f2_signed 	<= resize(signed(NOT rx_dec_lbk_f2) + 1, lbk_f2_signed'LENGTH) WHEN cclk = '0' ELSE 
-	 				   resize(signed(    rx_dec_lbk_f2),     lbk_f2_signed'LENGTH);
-
-	loopback_data_proc : PROCESS (clk)
-	BEGIN
-		IF clk'EVENT AND clk = '1' THEN
-
-			IF rx_dec_lbk_ena = '1' THEN
-
-				lbk_tclk	<= rx_dec_lbk_tclk	& lbk_tclk(0 TO 2);
-
-				IF rx_dec_lbk_tclk = '1' THEN
-	
-					lbk_f1_T <= signed(lbk_f1_signed);
-					lbk_f2_T <= signed(lbk_f2_signed);
-			
-					lbk_f1_sum <= signed(lbk_f1_signed) + lbk_f1_T;
-					lbk_f2_sum <= signed(lbk_f2_signed) + lbk_f2_T;
-				
-					lbk_bit_enc_T <= lbk_bit_enc;
-
-				END IF;
-
-			END IF;
-
-			IF rx_init = '1' THEN
-				lbk_f1_T 		<= (OTHERS => '0');
-				lbk_f2_T 		<= (OTHERS => '0');
-				lbk_f1_sum		<= (OTHERS => '0');
-				lbk_f2_sum		<= (OTHERS => '0');
-				lbk_bit_enc_T 	<= (OTHERS => '0');
-			END IF;
-
-		END IF;
-	END PROCESS loopback_data_proc;
-
-	lbk_sum 		<= signed(lbk_f1_sum) - signed(lbk_f2_sum);
-	lbk_bit_enc 	<= "01" WHEN lbk_sum(2) = '0' ELSE "11";
-	lbk_bit_dec		<= lbk_bit_enc(1) XOR lbk_bit_enc_T(1);
-
-	rx_data 		<= data_bit_dec WHEN rx_dec_lbk_ena = '0' ELSE lbk_bit_dec;
-	-- Soft value must also be differentially decoded to match hard decision!
-	-- When data_bit_enc_t = '1' (previous bit was negative), flip the soft sign
-	rx_data_soft		<= data_sum WHEN data_bit_enc_t = '0' ELSE -data_sum;
-
-	rx_dvalid 		<= tclk_dly(1)  WHEN rx_dec_lbk_ena = '0' ELSE lbk_tclk(1);
-
-	error_valid_f1 	<= tclk_dly(1) AND NOT(data_bit_dec) WHEN rx_dec_lbk_ena = '0' ELSE
-					   lbk_tclk(1) AND NOT(lbk_bit_dec);
-	error_valid_f2 	<= tclk_dly(1) AND data_bit_dec      WHEN rx_dec_lbk_ena = '0' ELSE
-					   lbk_tclk(1) AND lbk_bit_dec;
-
-
-------------------------------------------------------------------------------------------------------
---  __           __   __         __      __   __        __   __  __  __        __  __      
--- (_  \_/ |\/| |__) /  \ |     /   |   /  \ /   |_/   |__) |_  /   /  \ \  / |_  |__) \_/ 
--- __)  |  |  | |__) \__/ |__   \__ |__ \__/ \__ | \   | \  |__ \__ \__/  \/  |__ | \   |  
---                                                                                         
-------------------------------------------------------------------------------------------------------
--- Symbol Clock Recovery
-
-	tclk <= dclk XOR dclk_d WHEN rx_dec_lbk_ena = '0' ELSE rx_dec_lbk_tclk;
-
-	clock_rec_process : PROCESS (clk)
-	BEGIN
-		IF clk'EVENT AND clk = '1' THEN
-
-			rx_cos_f1_sin_f2 <= signed(rx_cos_f1) * signed(rx_sin_f2);
-			rx_cos_f2_sin_f1 <= signed(rx_cos_f2) * signed(rx_sin_f1);
-			rx_cos_f1_cos_f2 <= signed(rx_cos_f1) * signed(rx_cos_f2);
-			rx_sin_f1_sin_f2 <= signed(rx_sin_f2) * signed(rx_sin_f1);
-
-			dclk_slv <= rx_cos_f1_sin_f2 - rx_cos_f2_sin_f1;
-			cclk_slv <= rx_cos_f1_cos_f2 + rx_sin_f1_sin_f2;
-
-			dclk <= NOT dclk_slv(2*SINUSOID_W -1);
-			cclk <= NOT cclk_slv(2*SINUSOID_W -1);
-
-			dclk_d <= dclk;
-
-			IF init = '1' THEN
-
-				rx_cos_f1_sin_f2 	<= (OTHERS => '0');
-				rx_cos_f2_sin_f1 	<= (OTHERS => '0');
-				rx_cos_f1_cos_f2 	<= (OTHERS => '0');
-				rx_sin_f1_sin_f2 	<= (OTHERS => '0');
-				dclk_slv			<= (OTHERS => '0');
-				cclk_slv			<= (OTHERS => '0');
-				dclk				<= '0';
-				cclk				<= '0';
-				dclk_d				<= '0';
-
-			END IF;
-		END IF;
-	END PROCESS clock_rec_process;
-
-err_align : PROCESS (clk)
-    BEGIN
-        IF rising_edge(clk) THEN
-            ev_f1_d <= error_valid_f1;
-            ev_f2_d <= error_valid_f2;
-            IF rx_init = '1' THEN
-                ev_f1_d <= '0';
-                ev_f2_d <= '0';
-            END IF;
-        END IF;
-    END PROCESS;
-
-    -- whichever loop produced a valid error this symbol drives the shared loop
-    f1_error   <= f1_error_int;  -- left in for debug
-    f2_error   <= f2_error_int;  -- left in for debug
-    --common_err <= f1_error_int WHEN ev_f1_d = '1' ELSE f2_error_int;  -- now driven by dbu_loop_proc above
-    --common_err_valid <= ev_f1_d OR ev_f2_d;                           -- now driven by dbu_loop_proc above
-
-
-
-
-
-
-  -- ---- squarer:  z^2 = (i^2 - q^2) + j*(2*i*q)  (the modulation stripper) ----
-  dbu_square_proc : PROCESS (clk)
-  BEGIN
-      IF rising_edge(clk) THEN
-          IF rx_init = '1' THEN
-              dbu_sq_valid <= '0';
-          ELSIF rx_svalid = '1' THEN
-              dbu_sq_re <= resize(signed(rx_i_samples)*signed(rx_i_samples), dbu_sq_re'length)
-                         - resize(signed(rx_q_samples)*signed(rx_q_samples), dbu_sq_re'length);
-              dbu_sq_im <= resize(shift_left(signed(rx_i_samples)*signed(rx_q_samples), 1),
-                                  dbu_sq_im'length);
-              dbu_sq_valid <= '1';
-          ELSE
-              dbu_sq_valid <= '0';
-          END IF;
-      END IF;
-  END PROCESS;
-
-  -- ---- fixed mixer NCO @ R/2 (reuse the design's nco + sin_cos_lut) ----
-  U_dbu_mix_nco : ENTITY work.nco(rtl)
-      GENERIC MAP ( NCO_W => NCO_W, PHASE_INIT => (OTHERS => '0') )
-      PORT MAP (
-          clk => clk, init => rx_init,
-          enable          => rx_svalid,          -- advance once per channel sample
-          discard_nco     => (OTHERS => '0'),
-          freq_word       => DBU_MIX_FREQ,
-          freq_adj_zero   => '1',                -- fixed frequency: no loop adjust
-          freq_adj_valid  => '0',
-          freq_adjust     => (OTHERS => '0'),
-          phase           => dbu_mix_phase,
-          rollover_pi2 => OPEN, rollover_pi => OPEN, rollover_3pi2 => OPEN,
-          rollover_2pi => OPEN, tclk_even => OPEN, tclk_odd => OPEN );
-
-  U_dbu_mix_lut : ENTITY work.sin_cos_lut(lut_based)
-      GENERIC MAP ( PHASE_W => PHASE_W, PHASES => 2**PHASE_W, SINUSOID_W => SINUSOID_W )
-      PORT MAP (
-          clk => clk, init => rx_init,
-          phase   => dbu_mix_phase(NCO_W-1 DOWNTO NCO_W - PHASE_W),
-          sin_out => dbu_mix_sin,
-          cos_out => dbu_mix_cos );
-
-  -- ---- complex down-mix: (sq)*(cos - j sin) ----
-  dbu_mix_proc : PROCESS (clk)
-  BEGIN
-      IF rising_edge(clk) THEN
-          IF rx_init = '1' THEN
-              dbu_mix_valid <= '0';
-          ELSIF dbu_sq_valid = '1' THEN
-              dbu_mix_re <= resize(dbu_sq_re * signed(dbu_mix_cos), dbu_mix_re'length)
-                          + resize(dbu_sq_im * signed(dbu_mix_sin), dbu_mix_re'length);
-              dbu_mix_im <= resize(dbu_sq_im * signed(dbu_mix_cos), dbu_mix_im'length)
-                          - resize(dbu_sq_re * signed(dbu_mix_sin), dbu_mix_im'length);
-              dbu_mix_valid <= '1';
-          ELSE
-              dbu_mix_valid <= '0';
-          END IF;
-      END IF;
-  END PROCESS;
-
-  -- ---- contained low-pass FIR (top 18 bits of the 38b mixer bus) ----
-  U_dbu_fir : ENTITY work.fir_lowpass_complex(rtl)
-      GENERIC MAP ( IN_W => DBU_FIR_IN_W, COEF_W => 12 )
-      PORT MAP (
-          clk => clk, rst => rx_init, valid_in => dbu_mix_valid,
-          i_in  => dbu_mix_re(dbu_mix_re'high DOWNTO dbu_mix_re'high - DBU_FIR_IN_W + 1),
-          q_in  => dbu_mix_im(dbu_mix_im'high DOWNTO dbu_mix_im'high - DBU_FIR_IN_W + 1),
-          valid_out => dbu_fir_valid, i_out => dbu_fir_i, q_out => dbu_fir_q );
-
-  -- ---- CORDIC phase detector (top 18 bits of the 35b FIR bus) ----
-  U_dbu_cordic : ENTITY work.cordic_atan2(rtl)
-      GENERIC MAP ( XY_W => DBU_XY_W, ANG_W => 32, STAGES => 16 )
-      PORT MAP (
-          clk => clk, valid_in => dbu_fir_valid,
-          x_in => dbu_fir_i(dbu_fir_i'high DOWNTO dbu_fir_i'high - DBU_XY_W + 1),
-          y_in => dbu_fir_q(dbu_fir_q'high DOWNTO dbu_fir_q'high - DBU_XY_W + 1),
-          valid_out => dbu_angle_valid, angle => dbu_angle );
-
-  -- ---- De Buda NCO (2fc) + phase error.  32b signed subtract wraps == wrap32 ----
-  dbu_loop_proc : PROCESS (clk)
-  BEGIN
-      IF rising_edge(clk) THEN
-          IF rx_init = '1' THEN
-              dbu_phase        <= (OTHERS => '0');
-              common_err_valid <= '0';
-          ELSE
-              -- form the carrier phase error this sample
-              IF dbu_angle_valid = '1' THEN
-                  common_err       <= std_logic_vector(dbu_angle - dbu_phase);
-                  common_err_valid <= '1';
-              ELSE
-                  common_err_valid <= '0';
-              END IF;
-              -- advance the 2fc NCO by the full PI output once it is valid
-              IF common_adj_valid = '1' THEN
-                  dbu_phase <= dbu_phase + signed(pi_out);
-              END IF;
-          END IF;
-      END IF;
-  END PROCESS;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-u_carrier_filter : ENTITY work.pi_controller(rtl)
-    GENERIC MAP (
-        NCO_W      => NCO_W,
-        ERR_W      => 32,     -- warning hardcode alert!
-        GAIN_W     => GAIN_W,
-        ASSERT_ENA => False
-    )
-    PORT MAP (
-        clk            => clk,
-        init           => rx_init,
-        enable         => rx_enable,
-        lpf_p_gain     => lpf_p_gain,
-        lpf_i_gain     => lpf_i_gain,
-        lpf_i_shift    => lpf_i_shift,
-        lpf_p_shift    => lpf_p_shift,
-        lpf_freeze     => lpf_freeze,
-        lpf_zero       => lpf_zero,
-        lpf_err_valid  => common_err_valid,
-        lpf_err        => common_err,
-        lpf_adj_valid  => common_adj_valid,
-        --lpf_adjust     => common_adjust,
-        lpf_adjust     => pi_out, -- take the FULL PI output into pi_out instead of straight to common_adjust
-        lpf_accum      => OPEN          -- (optionally route to a debug port)
-        --lpf_p_gain     => GAIN_ZERO      -- coupled: common loop is integral-only (shared carrier frequency)
-    );
-
-
-    common_adjust <= std_logic_vector(shift_right(signed(pi_out), 1)); -- added as a concurrant assignment
-
-
-------------------------------------------------------------------------------------------------------
---  __  __   __ ___       __        __   __   __     __     
--- /   /  \ (_   |   /\  (_    |   /  \ /  \ |__)   |_   /| 
--- \__ \__/ __)  |  /--\ __)   |__ \__/ \__/ |      |     | 
---                                                          
-------------------------------------------------------------------------------------------------------
--- Costas Loop F1
-
-	U_f1 : ENTITY work.costas_loop(rtl)
-		GENERIC MAP (
-			NCO_W 			=> NCO_W,
-			ACC_W 		 	=> ACC_W,
-			PHASE_W 		=> PHASE_W,
-			SINUSOID_W 		=> SINUSOID_W,
-			SAMPLE_W 		=> SAMPLE_W,
-			DATA_W 			=> DATA_W,
-			PHASE_INIT 		=> NCO_2PI,
-                        EXTERNAL_NCO_ADJUST     => True,
-			SAMPLE_GATED_NCO	=> SAMPLE_GATED_NCO
-		)
-		PORT MAP (
-			clk 			=> clk,
-			init 			=> rx_init,
-
-			enable 			=> rx_enable,
-
-			tclk 			=> tclk,
-
-			lpf_p_gain 		=> lpf_p_gain,
-			lpf_i_gain 		=> lpf_i_gain,
-			lpf_i_shift		=> lpf_i_shift,
-			lpf_p_shift		=> lpf_p_shift,
-			lpf_freeze 	 	=> lpf_freeze,
-			lpf_zero 		=> lpf_zero,
-			lpf_alpha 		=> lpf_alpha,
-
-			lpf_accum 		=> lpf_accum_f1,
-			nco_adjust 		=> f1_nco_adjust,
-                        loop_error		=> f1_error_int,
-
-			discard_rxnco 	=> discard_rxnco,
-			freq_word 		=> rx_freq_word_f1,
-			cos_samples 	=> rx_cos_f1,
-			sin_samples 	=> rx_sin_f1,
-
-			error_valid		=> error_valid_f1,
-
-			rx_svalid 		=> rx_svalid,
-			--rx_samples 		=> rx_samples,
-			rx_i_samples    => rx_i_samples,
-			rx_q_samples    => rx_q_samples,
-
-			data_out 		=> data_f1,
-
-			symbol_lock_count		=> symbol_lock_count,
-			symbol_lock_threshold	=> symbol_lock_threshold,
-
-			cst_lock				=> cst_lock_f1,
-			cst_lock_time 			=> cst_lock_time_f1,
-			cst_unlock 				=> cst_unlock_f1,
-
-                        ext_adjust       => common_adjust,
-                        ext_adjust_valid => common_adj_valid,
-
-			-- Port mapping added for ILA in order to calibrate symbol lock threshold
-			dbg_acc_i => dbg_acc_i_f1,
-			dbg_acc_q => dbg_acc_q_f1,
-			dbg_acc_iq_delta => dbg_acc_iq_delta_f1
-
-		);
-
-
-------------------------------------------------------------------------------------------------------
---  __  __   __ ___       __        __   __   __     __  __  
--- /   /  \ (_   |   /\  (_    |   /  \ /  \ |__)   |_    _) 
--- \__ \__/ __)  |  /--\ __)   |__ \__/ \__/ |      |    /__ 
---                                                           
-------------------------------------------------------------------------------------------------------
--- Costas Loop F2
-                                                                              
-	U_f2 : ENTITY work.costas_loop(rtl)
-		GENERIC MAP (
-			NCO_W 			=> NCO_W,
-			ACC_W 		 	=> ACC_W,
-			PHASE_W 		=> PHASE_W,
-			SINUSOID_W 		=> SINUSOID_W,
-			SAMPLE_W 		=> SAMPLE_W,
-			DATA_W 			=> DATA_W,
-			PHASE_INIT 		=> NCO_2PI,
-                        EXTERNAL_NCO_ADJUST     => True,
-			SAMPLE_GATED_NCO	=> SAMPLE_GATED_NCO
-		)
-		PORT MAP (
-			clk 			=> clk,
-			init 			=> rx_init,
-
-			enable 			=> rx_enable,
-
-			tclk 			=> tclk,
-
-			lpf_p_gain 		=> lpf_p_gain,
-			lpf_i_gain 		=> lpf_i_gain,
-			lpf_i_shift		=> lpf_i_shift,
-			lpf_p_shift		=> lpf_p_shift,
-			lpf_freeze 	 	=> lpf_freeze,
-			lpf_zero 		=> lpf_zero,
-			lpf_alpha 		=> lpf_alpha,
-
-			lpf_accum 		=> lpf_accum_f2,
-			nco_adjust 		=> f2_nco_adjust,
-                        loop_error		=> f2_error_int,
-
-			discard_rxnco 	=> discard_rxnco,
-			freq_word 		=> rx_freq_word_f2,
-			cos_samples 	=> rx_cos_f2,
-			sin_samples 	=> rx_sin_f2,
-
-			error_valid 	=> error_valid_f2,
-
-			rx_svalid 		=> rx_svalid,
-			--rx_samples 		=> rx_samples,
-			rx_i_samples    => rx_i_samples,
-			rx_q_samples    => rx_q_samples,
-
-			data_out 		=> data_f2,
-
-			symbol_lock_count		=> symbol_lock_count,
-			symbol_lock_threshold	=> symbol_lock_threshold,
-
-			cst_lock				=> cst_lock_f2,
-			cst_lock_time 			=> cst_lock_time_f2,
-			cst_unlock 				=> cst_unlock_f2,
-
-                        ext_adjust       => common_adjust,
-                        ext_adjust_valid => common_adj_valid,
-
-			-- Port mapping added for ILA in order to calibrate symbol lock threshold
-			-- connect to open because we are planning on using F1 only for threshold calibration
-			dbg_acc_i => open,
-			dbg_acc_q => open,
-			dbg_acc_iq_delta => open
-
-		);
-
+    U_cordic : ENTITY work.cordic_atan2 GENERIC MAP (XY_W=>20, ANG_W=>32, STAGES=>16)
+        PORT MAP (clk=>clk, valid_in=>cd_vin, x_in=>cd_x, y_in=>cd_y, valid_out=>cd_vout, angle=>cd_ang);
+    U_cordic2 : ENTITY work.cordic_atan2 GENERIC MAP (XY_W=>20, ANG_W=>32, STAGES=>16)
+        PORT MAP (clk=>clk, valid_in=>cd2_vin, x_in=>cd2_x, y_in=>cd2_y, valid_out=>cd2_vout, angle=>cd2_ang);
+    cst_lock_time_f1<=(OTHERS=>'0'); cst_lock_time_f2<=(OTHERS=>'0');
+    cst_unlock_f1<='0'; cst_unlock_f2<='0';
+
+    process(clk)
+        TYPE ivec IS ARRAY(0 TO BUFLEN-1) OF integer; VARIABLE bi,bq:ivec;
+        VARIABLE st:st_t:=S_BUF; VARIABLE bc,gpos,skipcnt:integer:=0; VARIABLE started:boolean:=false;
+        VARIABLE cph,cfr,dph,p1,p2:signed(31 downto 0);
+        VARIABLE frac,boundary_fp,sidx,wsym:integer;
+        VARIABLE c1r,c1i,c2r,c2i:signed(47 downto 0); VARIABLE co,sn,tone_p:integer;
+        VARIABLE cph2:signed(31 downto 0);   -- second per-tone carrier phase (offset fix)
+        -- combine() BACK-END: residual theta Costas + imag arms + Massey 2T + boxplus
+        CONSTANT PTS:integer:=3; CONSTANT ITS:integer:=7; CONSTANT ARMSH:integer:=22; -- theta gains + arm scale (fabric-scale validated)
+        CONSTANT Q30:signed(31 downto 0):=to_signed(1073741824,32); -- 2^30 = 90 deg in 2^32 angle units
+        VARIABLE cd2_ang_lat:signed(31 downto 0):=(others=>'0');     -- CORDIC angle latched at cd2_vout
+        VARIABLE theta,freqc:signed(31 downto 0):=(others=>'0');
+        VARIABLE co2,sn2:integer;
+        VARIABLE y1r,y1i,y2r,y2i,ar,ai,eth:signed(63 downto 0);
+        VARIABLE Xa,Yva,Xp,Yvp,enc_cur,enc_p,soft2t,maga,magb,magm:signed(39 downto 0);
+        VARIABLE sgn2t:integer;
+        CONSTANT PARITY:integer:=0;   -- 2T pairing parity (0 or 1); flip if frame sync never locks
+        -- CONTINUOUS-reference correlator (phase NOT reset per symbol) feeding the 2T back-end
+        VARIABLE p1c,p2c:signed(31 downto 0):=(others=>'0');
+        VARIABLE fdacc:signed(31 downto 0):=(others=>'0');  -- continuous fd phase (never sawtooth-reset)
+        VARIABLE c1cr,c1ci,c2cr,c2ci:signed(47 downto 0):=(others=>'0');
+        VARIABLE cont_init:boolean:=false;
+        -- lookahead streaming 2T state; ai_sgn latched for the delayed CORDIC discriminator
+        VARIABLE Xh,Yvh:signed(39 downto 0):=(others=>'0'); VARIABLE have_arm,have_enc:boolean:=false; VARIABLE t2idx:integer:=0; VARIABLE ai_sgn:integer:=1;
+        VARIABLE d1,d2,car,cai,e64,sd64:signed(63 downto 0);
+        VARIABLE WORD_R4,pg,ps,ig,ish,slc,slt:integer; VARIABLE rx_tone_i:std_logic;
+        -- per-tone symbol-lock detector (I^2 - Q^2 accumulated over slc symbols)
+        VARIABLE aif1,aqf1,aif2,aqf2,iqd1,iqd2:signed(63 downto 0); VARIABLE cf1,cf2,iv,qv:integer;
+        VARIABLE lkf1,lkf2:std_logic;
+        -- search FSM state
+        VARIABLE sc,sy,sk,sw,sidxs:integer; VARIABLE sp_fp:integer; VARIABLE stph:signed(31 downto 0);
+        VARIABLE sc1r,sc1i,sc2r,sc2i:signed(47 downto 0); VARIABLE setot,sbest,ee1,ee2:signed(63 downto 0); VARIABLE sbs2:integer;
+
+        PROCEDURE newsym IS VARIABLE tmp:integer; BEGIN c1r:=(others=>'0');c1i:=(others=>'0');c2r:=(others=>'0');c2i:=(others=>'0'); sidx:=0;
+            c1cr:=(others=>'0');c1ci:=(others=>'0');c2cr:=(others=>'0');c2ci:=(others=>'0');  -- continuous accums reset per symbol; p1c/p2c must NOT reset
+            tmp:=frac+SPS_FP; wsym:=tmp/65536; frac:=tmp-wsym*65536; if wsym<1 then wsym:=1; end if; p1:=cph; p2:=cph2; END;
+        PROCEDURE accum(si,sq:integer) IS BEGIN
+            co:=rc(p1); sn:=rs(p1); c1r:=c1r+to_signed(si*co+sq*sn,48); c1i:=c1i+to_signed(sq*co-si*sn,48);
+            co:=rc(p2); sn:=rs(p2); c2r:=c2r+to_signed(si*co+sq*sn,48); c2i:=c2i+to_signed(sq*co-si*sn,48);
+            -- CONTINUOUS-reference correlator: same tone freqs (cfr +/- WORD_R4), phase carried across symbols
+            co:=rc(p1c); sn:=rs(p1c); c1cr:=c1cr+to_signed(si*co+sq*sn,48); c1ci:=c1ci+to_signed(sq*co-si*sn,48);
+            co:=rc(p2c); sn:=rs(p2c); c2cr:=c2cr+to_signed(si*co+sq*sn,48); c2ci:=c2ci+to_signed(sq*co-si*sn,48);
+            p1:=p1+to_signed(to_integer(cfr)+WORD_R4,32); p2:=p2+to_signed(to_integer(cfr)-WORD_R4,32);
+            -- continuous correlator: FIXED WORD_R4 only (decoupled from front-end carrier loop); theta tracks full carrier offset
+            p1c:=p1c+to_signed(WORD_R4,32); p2c:=p2c+to_signed(-WORD_R4,32);
+            sidx:=sidx+1; END;
+        PROCEDURE dump IS BEGIN
+            co:=rc(dph); sn:=rs(dph);
+            d1:=resize(c1r*co,64)+resize(c1i*sn,64); d2:=resize(c2r*co,64)+resize(c2i*sn,64);
+            if d1>d2 then tone_p:=1; else tone_p:=0; end if;
+            if tone_p=1 then car:=resize(c1r*co,64)+resize(c1i*sn,64); cai:=resize(c1i*co,64)-resize(c1r*sn,64);
+            else car:=resize(c2r*co,64)+resize(c2i*sn,64); cai:=resize(c2i*co,64)-resize(c2r*sn,64); end if;
+            cd_x<=resize(shift_right(car,28),20); cd_y<=resize(shift_right(cai,28),20); cd_vin<='1';
+            if tone_p=1 then dph:=low32(resize(dph,64)+to_signed(WORD_R4,64)*wsym); else dph:=low32(resize(dph,64)-to_signed(WORD_R4,64)*wsym); end if;
+            -- ===== combine() BACK-END on CONTINUOUS correlator c1c/c2c (front-end above UNTOUCHED) =====
+            -- theta update from PREVIOUS symbol's latched CORDIC angle (delay-1); exactly one update per symbol
+            if ai_sgn>=0 then eth:=resize(cd2_ang_lat,64)-resize(Q30,64);
+            else               eth:=resize(cd2_ang_lat,64)+resize(Q30,64); end if;
+            eth:=resize(low32(eth),64);
+            freqc:=low32(resize(freqc,64)+shift_right(eth,ITS));
+            theta:=low32(resize(theta,64)+shift_right(eth,PTS)+resize(freqc,64));
+            co2:=rc(theta); sn2:=rs(theta);
+            y1r:=resize(c1cr*co2,64)+resize(c1ci*sn2,64); y1i:=resize(c1ci*co2,64)-resize(c1cr*sn2,64);
+            y2r:=resize(c2cr*co2,64)+resize(c2ci*sn2,64); y2i:=resize(c2ci*co2,64)-resize(c2cr*sn2,64);
+            -- dominant tone by de-rotated energy (shift before square to bound width)
+            d1:=resize(shift_right(y1r,18),32)*resize(shift_right(y1r,18),32)+resize(shift_right(y1i,18),32)*resize(shift_right(y1i,18),32);
+            d2:=resize(shift_right(y2r,18),32)*resize(shift_right(y2r,18),32)+resize(shift_right(y2i,18),32)*resize(shift_right(y2i,18),32);
+            if d2>d1 then ar:=y2r; ai:=y2i; else ar:=y1r; ai:=y1i; end if;
+            -- feed CORDIC for NEXT symbol's theta update; latch sign(ai) to pair with the angle
+            cd2_x<=resize(shift_right(ar,22),20); cd2_y<=resize(shift_right(ai,22),20); cd2_vin<='1';
+            if ai<0 then ai_sgn:=-1; else ai_sgn:=1; end if;
+            -- Massey 2T with one-symbol lookahead (pair symbol t2idx with next) + boxplus soft
+            Xa:=resize(shift_right(y1i,ARMSH),40); Yva:=resize(shift_right(y2i,ARMSH),40);
+            if have_arm then
+                if ((t2idx+PARITY) mod 2)=0 then enc_cur:=(Xh+Xa)-(Yvh+Yva); else enc_cur:=(Xh+Xa)+(Yvh+Yva); end if;
+                if have_enc then
+                    maga:=abs(enc_cur); magb:=abs(enc_p);
+                    if maga<magb then magm:=maga; else magm:=magb; end if;
+                    if (enc_cur<0)=(enc_p<0) then soft2t:=magm; else soft2t:=-magm; end if;
+                    if soft2t<0 then rx_data<='1'; else rx_data<='0'; end if;
+                    if soft2t>32767 then rx_data_soft<=to_signed(32767,16);
+                    elsif soft2t<-32768 then rx_data_soft<=to_signed(-32768,16);
+                    else rx_data_soft<=resize(soft2t,16); end if;
+                    rx_dvalid<='1';
+                end if;
+                enc_p:=enc_cur; have_enc:=true; t2idx:=t2idx+1;
+            end if;
+            Xh:=Xa; Yvh:=Yva; have_arm:=true;
+            -- REAL symbol-lock: per-tone in-phase(car) vs quadrature/error(cai) energy over slc symbols
+            iv:=to_integer(shift_right(car,24)); qv:=to_integer(shift_right(cai,24));
+            if tone_p=1 then
+                aif1:=aif1+to_signed(iv*iv,64); aqf1:=aqf1+to_signed(qv*qv,64); cf1:=cf1+1;
+                if cf1>=slc then iqd1:=aif1-aqf1;
+                    if iqd1>to_signed(slt,64) then lkf1:='1'; else lkf1:='0'; end if;
+                    aif1:=(others=>'0'); aqf1:=(others=>'0'); cf1:=0; end if;
+            else
+                aif2:=aif2+to_signed(iv*iv,64); aqf2:=aqf2+to_signed(qv*qv,64); cf2:=cf2+1;
+                if cf2>=slc then iqd2:=aif2-aqf2;
+                    if iqd2>to_signed(slt,64) then lkf2:='1'; else lkf2:='0'; end if;
+                    aif2:=(others=>'0'); aqf2:=(others=>'0'); cf2:=0; end if;
+            end if;
+            cst_lock_f1<=lkf1; cst_lock_f2<=lkf2;
+            lpf_accum_f1 <=std_logic_vector(resize(shift_right(c1r,16),ACC_W)); f1_nco_adjust<=std_logic_vector(resize(shift_right(c1i,16),32));
+            lpf_accum_f2 <=std_logic_vector(resize(shift_right(c2r,16),ACC_W)); f2_nco_adjust<=std_logic_vector(resize(shift_right(c2i,16),32));
+            dbg_acc_iq_delta_f1<=std_logic_vector(resize(shift_right(iqd1,8),32)); END;
+    begin
+        if rising_edge(clk) then
+            rx_dvalid<='0'; cd_vin<='0'; cd2_vin<='0';
+            WORD_R4:=(to_integer(signed(rx_freq_word_f1))-to_integer(signed(rx_freq_word_f2)))/2;
+            pg:=to_integer(unsigned(lpf_p_gain)); ps:=to_integer(unsigned(lpf_p_shift));
+            ig:=to_integer(unsigned(lpf_i_gain)); ish:=to_integer(unsigned(lpf_i_shift));
+            slc:=to_integer(unsigned(symbol_lock_count)); slt:=to_integer(unsigned(symbol_lock_threshold));
+            if slc<1 then slc:=16; end if;
+            -- live telemetry on the old dead ports (real carrier + lock state)
+            -- (telemetry removed to expose accumulators cleanly)
+
+            f1_error      <= std_logic_vector(cd_ang);                                -- CORDIC carrier error (watch it shrink)
+            dbg_acc_i_f1  <= std_logic_vector(resize(shift_right(aif1,8),32));        -- f1 in-phase energy accum
+            dbg_acc_q_f1  <= std_logic_vector(resize(shift_right(aqf1,8),32));        -- f1 quadrature energy accum
+            f2_error      <= std_logic_vector(resize(shift_right(iqd2,8),32));        -- f2 LOCK METRIC (aif2-aqf2)
+
+
+            if init='1' or rx_enable='0' then
+                st:=S_BUF; bc:=0; gpos:=0; cph:=(others=>'0'); cph2:=(others=>'0');
+                theta:=(others=>'0'); freqc:=(others=>'0'); Xp:=(others=>'0'); Yvp:=(others=>'0'); enc_p:=(others=>'0'); sgn2t:=-1;
+                p1c:=(others=>'0'); p2c:=(others=>'0'); fdacc:=(others=>'0'); have_arm:=false; have_enc:=false; t2idx:=0; cont_init:=false;
+                cfr:=to_signed((to_integer(signed(rx_freq_word_f1))+to_integer(signed(rx_freq_word_f2)))/2,32);
+                dph:=(others=>'0'); frac:=0; cst_lock_f1<='0'; cst_lock_f2<='0';
+                aif1:=(others=>'0');aqf1:=(others=>'0');aif2:=(others=>'0');aqf2:=(others=>'0');
+                cf1:=0;cf2:=0;lkf1:='0';lkf2:='0';
+            else
+                -- async carrier update (any state)
+                if cd_vout='1' then
+                    e64:=to_signed(to_integer(cd_ang),64);
+                    cfr:=resize(resize(cfr,64)+shift_right(e64*ig,ish),32);
+                    if cfr>400000000 then cfr:=to_signed(400000000,32); elsif cfr<-400000000 then cfr:=to_signed(-400000000,32); end if;
+                    if tone_p=1 then
+                        cph :=low32(resize(cph,64) +shift_right(e64*pg,ps)+resize(cfr,64)*wsym);
+                        cph2:=low32(resize(cph2,64)                       +resize(cfr,64)*wsym);
+                    else
+                        cph2:=low32(resize(cph2,64)+shift_right(e64*pg,ps)+resize(cfr,64)*wsym);
+                        cph :=low32(resize(cph,64)                        +resize(cfr,64)*wsym);
+                    end if;
+                end if;
+                -- latch CORDIC angle when valid; theta update itself happens once per symbol in dump
+                if cd2_vout='1' then cd2_ang_lat:=cd2_ang; end if;
+                if rx_svalid='1' then gpos:=gpos+1; end if;   -- global live-sample counter (all states)
+
+                case st is
+                when S_BUF =>
+                    if rx_svalid='1' then
+                        bi(bc):=to_integer(signed(rx_i_samples)); bq(bc):=to_integer(signed(rx_q_samples)); bc:=bc+1;
+                        if bc=BUFLEN then
+                            sc:=0; sy:=0; sk:=0; sp_fp:=0; sw:=SPS_FP/65536; stph:=(others=>'0');
+                            sc1r:=(others=>'0');sc1i:=(others=>'0');sc2r:=(others=>'0');sc2i:=(others=>'0');
+                            setot:=(others=>'0'); sbest:=to_signed(-1,64); sbs2:=0; st:=S_SEARCH;
+                        end if;
+                    end if;
+                when S_SEARCH =>                               -- multi-cycle search: one buffer-sample per clock
+                    sidxs:=(sp_fp/65536)+sk;
+                    if sidxs<BUFLEN then
+                        co:=rc(stph); sn:=rs(stph);
+                        sc1r:=sc1r+to_signed(bi(sidxs)*co+bq(sidxs)*sn,48); sc1i:=sc1i+to_signed(bq(sidxs)*co-bi(sidxs)*sn,48);
+                        sc2r:=sc2r+to_signed(bi(sidxs)*co-bq(sidxs)*sn,48); sc2i:=sc2i+to_signed(bq(sidxs)*co+bi(sidxs)*sn,48);
+                    end if;
+                    stph:=stph+to_signed(WORD_R4,32); sk:=sk+1;
+                    if sk>=sw then                            -- symbol done
+                        ee1:=resize(shift_right(sc1r,8)*shift_right(sc1r,8),64)+resize(shift_right(sc1i,8)*shift_right(sc1i,8),64);
+                        ee2:=resize(shift_right(sc2r,8)*shift_right(sc2r,8),64)+resize(shift_right(sc2i,8)*shift_right(sc2i,8),64);
+                        setot:=setot+abs(ee1-ee2);
+                        sc1r:=(others=>'0');sc1i:=(others=>'0');sc2r:=(others=>'0');sc2i:=(others=>'0');
+                        sp_fp:=sp_fp+SPS_FP; sw:=((sp_fp+SPS_FP)/65536)-(sp_fp/65536); if sw<1 then sw:=1; end if;
+                        sk:=0; stph:=(others=>'0'); sy:=sy+1;
+                        if sy>=NSRCH then                     -- candidate done
+                            if setot>sbest then sbest:=setot; sbs2:=sc; end if;
+                            setot:=(others=>'0'); sc:=sc+1; sp_fp:=sc*65536;
+                            sw:=((sc*65536+SPS_FP)/65536)-sc; if sw<1 then sw:=1; end if; sy:=0;
+                            if sc>=12 then boundary_fp:=sbs2*65536; st:=S_BOUND; end if;
+                        end if;
+                    end if;
+                when S_BOUND =>                                -- advance one SPS per clock to first boundary >= gpos
+                    if (boundary_fp/65536) < gpos then boundary_fp:=boundary_fp+SPS_FP;
+                    else skipcnt:=(boundary_fp/65536)-gpos; frac:=boundary_fp-(boundary_fp/65536)*65536; started:=false; st:=S_RUN; end if;
+                when S_RUN =>
+                    if rx_svalid='1' then
+                        if skipcnt>0 then skipcnt:=skipcnt-1;
+                        else
+                            if not started then newsym; p1c:=(others=>'0'); p2c:=(others=>'0');
+                                have_arm:=false; have_enc:=false; t2idx:=0; theta:=(others=>'0'); freqc:=(others=>'0');
+                                cd2_ang_lat:=(others=>'0'); ai_sgn:=1; Xh:=(others=>'0'); Yvh:=(others=>'0'); enc_p:=(others=>'0');
+                                started:=true; end if;
+                            accum(to_integer(signed(rx_i_samples)),to_integer(signed(rx_q_samples)));
+                            if sidx=wsym then dump; newsym; end if;
+                        end if;
+                    end if;
+                end case;
+            end if;
+        end if;
+    end process;
 END ARCHITECTURE rtl;
